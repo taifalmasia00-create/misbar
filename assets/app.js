@@ -72,6 +72,7 @@ form.addEventListener("submit", async (e) => {
     const pageText = await fetchPageContent(url);
 
     let competitors = [];
+    let competitorsNote = "";
     if (compareBox && compareBox.checked) {
       try {
         showStatus("بندوّر على منافسين حقيقيين في نفس المجال...", "loading");
@@ -79,23 +80,25 @@ form.addEventListener("submit", async (e) => {
 
         if (found.length) {
           showStatus("بنقرا مواقع المنافسين (" + found.length + ")...", "loading");
-          const withText = await Promise.all(
+          competitors = await Promise.all(
             found.map(async (c) => {
               try {
                 const text = await fetchPageContent(c.url, 4000);
                 return { ...c, text };
               } catch (e) {
+                // معرفناش نقرا محتوى موقعه بالكامل، بس لسه نقدر نقارنه بمعرفة Gemini العامة عنه
                 return { ...c, text: null };
               }
             })
           );
-          // نستبعد أي منافس تعذّرت قراءة موقعه بالكامل
-          competitors = withText.filter((c) => c.text);
+        } else {
+          competitorsNote = "معرفناش نلاقي منافسين حقيقيين واضحين لموقعك، فالتقرير هيبقى من غيرهم.";
         }
       } catch (e) {
         console.error("competitor discovery failed:", e);
         // فشل اكتشاف المنافسين مش لازم يوقف الفحص الأساسي — نكمل من غيرهم
         competitors = [];
+        competitorsNote = "حصلت مشكلة أثناء البحث عن المنافسين، فالتقرير هيبقى من غيرهم.";
       }
     }
 
@@ -103,7 +106,11 @@ form.addEventListener("submit", async (e) => {
     const analysis = await runAnalysis(apiKey, url, pageText, competitors);
 
     renderReport(url, analysis);
-    statusBox.hidden = true;
+    if (competitorsNote) {
+      showStatus(competitorsNote);
+    } else {
+      statusBox.hidden = true;
+    }
   } catch (err) {
     console.error(err);
     showStatus(friendlyError(err), "error");
@@ -174,6 +181,26 @@ async function fetchPageContent(url, maxLen = 12000) {
 
 /* ---------- 2) اكتشاف منافسين حقيقيين عبر بحث جوجل المدمج في Gemini ---------- */
 async function findCompetitors(apiKey, url, pageText) {
+  let list = [];
+  try {
+    list = await findCompetitorsGrounded(apiKey, url, pageText);
+  } catch (e) {
+    console.error("grounded competitor search failed:", e);
+  }
+
+  if (list.length) return list;
+
+  // لو بحث جوجل المدمج مرجعش حاجة (أو الموديل مش بيدعمه كويس)، نجرب مرة تانية
+  // بمعرفة الموديل العامة بس من غير أداة البحث
+  try {
+    return await findCompetitorsFallback(apiKey, url, pageText);
+  } catch (e) {
+    console.error("fallback competitor search failed:", e);
+    return [];
+  }
+}
+
+async function findCompetitorsGrounded(apiKey, url, pageText) {
   const prompt = `أنت محلل سوق. المطلوب: ابحث فعليًا على الإنترنت عن 2 إلى 3 منافسين حقيقيين ومباشرين
 لهذا الموقع، في نفس المجال والسوق (ولو ممكن نفس الدولة أو المنطقة):
 
@@ -192,7 +219,7 @@ async function findCompetitors(apiKey, url, pageText) {
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       tools: [{ google_search: {} }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 600 },
+      generationConfig: { temperature: 0.4, maxOutputTokens: 1000 },
     }),
   });
 
@@ -211,8 +238,56 @@ async function findCompetitors(apiKey, url, pageText) {
   if (!textPart) return [];
 
   const list = extractJson(textPart, "array");
-  if (!Array.isArray(list)) return [];
+  return normalizeCompetitorsList(list);
+}
 
+/* محاولة احتياطية من غير أداة بحث جوجل — بتعتمد على معرفة الموديل العامة فقط */
+async function findCompetitorsFallback(apiKey, url, pageText) {
+  const prompt = `أنت محلل سوق. بناءً على معرفتك العامة (من غير بحث حي على الإنترنت)، اقترح 2 إلى 3
+منافسين حقيقيين ومعروفين ومباشرين لهذا الموقع، في نفس المجال والسوق:
+
+رابط الموقع: ${url}
+لمحة عن نشاطه (من محتوى الصفحة): ${pageText.slice(0, 1500)}
+
+رجّع فقط مصفوفة JSON بالشكل ده بالظبط، بدون أي نص إضافي قبلها أو بعدها:
+[{"name": "اسم الشركة المنافسة", "url": "https://رابط موقعها الرسمي"}]
+
+لازم تكون شركات حقيقية موجودة فعليًا وتعرفها بثقة، مش أسماء مخترعة. لو مش متأكد من أي منافس
+حقيقي، رجّع مصفوفة فاضية [].`;
+
+  const res = await fetch(GEMINI_ENDPOINT(MODEL, apiKey), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.4,
+        maxOutputTokens: 700,
+        responseMimeType: "application/json",
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error("API " + res.status + ": " + errBody.slice(0, 200));
+  }
+
+  const data = await res.json();
+  const candidate = (data.candidates || [])[0];
+  const textPart =
+    candidate &&
+    candidate.content &&
+    (candidate.content.parts || []).map((p) => p.text || "").join("");
+
+  if (!textPart) return [];
+
+  const list = extractJson(textPart, "array");
+  return normalizeCompetitorsList(list);
+}
+
+function normalizeCompetitorsList(list) {
+  if (!Array.isArray(list)) return [];
   return list
     .filter((c) => c && c.name && c.url)
     .slice(0, 3)
@@ -251,11 +326,11 @@ async function runAnalysis(apiKey, url, pageText, competitors) {
   "overall_score": رقم من 0 إلى 100,
   "summary": "ملخص من جملتين بالعربية عن الحالة العامة للموقع",
   "categories": [
-    {"name": "التصميم والهوية", "score": رقم من 0 إلى 100},
-    {"name": "تجربة المستخدم", "score": رقم من 0 إلى 100},
-    {"name": "السيو والمحتوى", "score": رقم من 0 إلى 100},
-    {"name": "عناصر الثقة", "score": رقم من 0 إلى 100},
-    {"name": "قابلية التحويل", "score": رقم من 0 إلى 100}
+    {"name": "التصميم والهوية", "score": رقم من 0 إلى 100, "diagnosis": "جملة أو اتنين بتشرح تحديدًا ليه المحور ده أخد النتيجة دي بناءً على المحتوى الفعلي", "improvements": ["خطوة عملية محددة لتحسين المحور ده 1", "خطوة عملية 2", "خطوة عملية 3"]},
+    {"name": "تجربة المستخدم", "score": رقم من 0 إلى 100, "diagnosis": "...", "improvements": ["...", "...", "..."]},
+    {"name": "السيو والمحتوى", "score": رقم من 0 إلى 100, "diagnosis": "...", "improvements": ["...", "...", "..."]},
+    {"name": "عناصر الثقة", "score": رقم من 0 إلى 100, "diagnosis": "...", "improvements": ["...", "...", "..."]},
+    {"name": "قابلية التحويل", "score": رقم من 0 إلى 100, "diagnosis": "...", "improvements": ["...", "...", "..."]}
   ],
   "strengths": ["نقطة قوة 1", "نقطة قوة 2", "نقطة قوة 3"],
   "weaknesses": ["نقطة ضعف 1", "نقطة ضعف 2", "نقطة ضعف 3"],
@@ -290,7 +365,7 @@ async function runAnalysis(apiKey, url, pageText, competitors) {
   if (hasCompetitors) {
     userMsg += `\n\n---\nمواقع المنافسين اللي تحتاج تقارن الموقع الأساسي بيهم:\n`;
     competitors.forEach((c, i) => {
-      userMsg += `\n[منافس ${i + 1}] الاسم: ${c.name} — الرابط: ${c.url}\nمحتوى صفحته (نص مستخرج):\n${c.text || "(تعذّرت قراءة محتوى هذا الموقع)"}\n`;
+      userMsg += `\n[منافس ${i + 1}] الاسم: ${c.name} — الرابط: ${c.url}\nمحتوى صفحته (نص مستخرج):\n${c.text || "(تعذّرت قراءة محتوى هذا الموقع مباشرة — اعتمد في المقارنة على معرفتك العامة عن هذه الشركة ونشاطها بدل ما ترفض المقارنة)"}\n`;
     });
   }
 
@@ -307,7 +382,7 @@ async function runAnalysis(apiKey, url, pageText, competitors) {
     ],
     generationConfig: {
       temperature: 0.4,
-      maxOutputTokens: hasCompetitors ? 3000 : 1800,
+      maxOutputTokens: hasCompetitors ? 3800 : 2600,
       responseMimeType: "application/json",
     },
   });
@@ -376,15 +451,50 @@ function renderReport(url, data) {
 
   const catGrid = document.getElementById("cat-grid");
   catGrid.innerHTML = "";
-  (data.categories || []).forEach((cat) => {
+  (data.categories || []).forEach((cat, idx) => {
     const s = clamp(Number(cat.score) || 0, 0, 100);
+    const color = scoreColor(s);
+    const catId = "cat-details-" + idx;
+
     const el = document.createElement("div");
     el.className = "cat-item";
     el.innerHTML = `
-      <span class="cat-name">${escapeHtml(cat.name)}</span>
-      <span class="cat-score" style="color:${scoreColor(s)}">${Math.round(s)}</span>
-      <div class="cat-bar"><span style="width:${s}%; background:${scoreColor(s)}"></span></div>
+      <button type="button" class="cat-toggle" aria-expanded="false" aria-controls="${catId}">
+        <span class="cat-name">${escapeHtml(cat.name)}</span>
+        <span class="cat-toggle-right">
+          <span class="cat-score" style="color:${color}">${Math.round(s)}</span>
+          <span class="cat-chevron" aria-hidden="true">▾</span>
+        </span>
+      </button>
+      <div class="cat-bar"><span style="width:${s}%; background:${color}"></span></div>
+      <div class="cat-details" id="${catId}" hidden></div>
     `;
+
+    const detailsEl = el.querySelector(".cat-details");
+    const hasDetails = cat.diagnosis || (cat.improvements && cat.improvements.length);
+    if (hasDetails) {
+      let detailsHtml = "";
+      if (cat.diagnosis) {
+        detailsHtml += `<p class="cat-diagnosis">${escapeHtml(cat.diagnosis)}</p>`;
+      }
+      if (cat.improvements && cat.improvements.length) {
+        detailsHtml += `<h5>إزاي تحسّنه</h5><ul>${cat.improvements
+          .map((imp) => `<li>${escapeHtml(imp)}</li>`)
+          .join("")}</ul>`;
+      }
+      detailsEl.innerHTML = detailsHtml;
+
+      const toggleBtn = el.querySelector(".cat-toggle");
+      toggleBtn.addEventListener("click", () => {
+        const isOpen = el.classList.contains("cat-item-open");
+        el.classList.toggle("cat-item-open", !isOpen);
+        detailsEl.hidden = isOpen;
+        toggleBtn.setAttribute("aria-expanded", String(!isOpen));
+      });
+    } else {
+      el.querySelector(".cat-toggle").classList.add("cat-toggle-static");
+    }
+
     catGrid.appendChild(el);
   });
 

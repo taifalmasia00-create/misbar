@@ -437,7 +437,7 @@ section { padding: 88px 0; }
 
 .cat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 14px;
   margin-bottom: 34px;
 }
@@ -446,11 +446,57 @@ section { padding: 88px 0; }
   background: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
+  transition: border-color .15s ease;
 }
-.cat-item .cat-name { font-size: 13px; color: var(--mist); margin-bottom: 10px; display: block; }
-.cat-item .cat-score { font-family: var(--font-mono); font-size: 22px; font-weight: 600; }
-.cat-bar { height: 5px; border-radius: 4px; background: var(--line-strong); margin-top: 10px; overflow: hidden; }
+.cat-item-open { border-color: var(--line-strong); }
+.cat-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0 0 10px;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.cat-toggle-static { cursor: default; }
+.cat-toggle .cat-name { font-size: 13px; color: var(--mist); }
+.cat-toggle-right { display: flex; align-items: center; gap: 8px; }
+.cat-toggle .cat-score { font-family: var(--font-mono); font-size: 22px; font-weight: 600; }
+.cat-chevron {
+  color: var(--mist);
+  font-size: 12px;
+  transition: transform .2s ease;
+}
+.cat-item-open .cat-chevron { transform: rotate(180deg); color: var(--signal); }
+.cat-toggle-static .cat-chevron { display: none; }
+.cat-bar { height: 5px; border-radius: 4px; background: var(--line-strong); overflow: hidden; }
 .cat-bar > span { display: block; height: 100%; background: var(--signal); border-radius: 4px; }
+.cat-details {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.cat-diagnosis { color: var(--mist); font-size: 13.5px; margin: 0 0 12px; line-height: 1.6; }
+.cat-details h5 { font-size: 12.5px; color: var(--mist); margin: 0 0 10px; font-weight: 600; }
+.cat-details ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.cat-details li {
+  font-size: 13.5px;
+  color: var(--paper);
+  padding-inline-start: 18px;
+  position: relative;
+  line-height: 1.5;
+}
+.cat-details li::before {
+  content: "→";
+  position: absolute; inset-inline-start: 0;
+  color: var(--signal);
+}
 
 .lists-grid {
   display: grid;
