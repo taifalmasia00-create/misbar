@@ -5,7 +5,7 @@
    3) يعرض التقرير في الداشبورد
 ========================================================= */
 
-const MODEL = "gemini-2.5-flash";
+const MODEL = "gemini-flash-latest";
 const GEMINI_ENDPOINT = (model, key) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 const READER_PREFIX = "https://r.jina.ai/";
@@ -100,6 +100,9 @@ function friendlyError(err) {
   const msg = String(err && err.message ? err.message : err);
   if (msg.includes("400") || msg.includes("401") || msg.includes("403") || msg.includes("API_KEY_INVALID") || msg.includes("authentication")) {
     return "مفتاح الـ API مش صحيح أو مش مفعّل. تأكد منه من aistudio.google.com/apikey.";
+  }
+  if (msg.includes("no longer available") || (msg.includes("404") && msg.includes("model"))) {
+    return "الموديل اللي بتستخدمه اتقفل من جوجل. حدّث ثابت MODEL في assets/app.js لأحدث موديل متاح (شوف ai.google.dev/gemini-api/docs/models).";
   }
   if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) {
     return "تجاوزت الحد المجاني المسموح به مؤقتًا. استنى شوية وحاول تاني.";
