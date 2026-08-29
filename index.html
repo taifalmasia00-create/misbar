@@ -58,28 +58,31 @@
       </div>
 
       <div class="hero-visual" aria-hidden="true">
-        <div class="browser-mock">
+        <div class="browser-mock" id="hero-mock">
           <div class="browser-bar">
             <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-            <span class="browser-url">yourstore.com</span>
+            <span class="browser-url" id="hero-browser-url">yourstore.com</span>
           </div>
-          <div class="browser-body">
-            <div class="fake-line w-70"></div>
-            <div class="fake-block"></div>
-            <div class="fake-line w-40"></div>
-            <div class="fake-line w-90"></div>
-            <div class="fake-grid">
-              <div class="fake-card"></div>
-              <div class="fake-card"></div>
-              <div class="fake-card"></div>
+          <div class="browser-body" id="hero-browser-body">
+            <div class="hero-skeleton" id="hero-skeleton">
+              <div class="fake-line w-70"></div>
+              <div class="fake-block"></div>
+              <div class="fake-line w-40"></div>
+              <div class="fake-line w-90"></div>
+              <div class="fake-grid">
+                <div class="fake-card"></div>
+                <div class="fake-card"></div>
+                <div class="fake-card"></div>
+              </div>
+              <div class="fake-line w-60"></div>
+              <div class="scan-line" id="hero-scan-line"></div>
             </div>
-            <div class="fake-line w-60"></div>
-            <div class="scan-line"></div>
+            <img class="hero-screenshot" id="hero-screenshot" alt="" hidden>
           </div>
-          <span class="badge badge-1">SEO <b>82</b></span>
-          <span class="badge badge-2">تجربة المستخدم <b>91</b></span>
-          <span class="badge badge-3">الأداء <b>64</b></span>
-          <span class="badge badge-4">الثقة <b>77</b></span>
+          <span class="badge badge-1" id="hero-badge-1"><span class="badge-label">SEO</span> <b>82</b></span>
+          <span class="badge badge-2" id="hero-badge-2"><span class="badge-label">تجربة المستخدم</span> <b>91</b></span>
+          <span class="badge badge-3" id="hero-badge-3"><span class="badge-label">الأداء</span> <b>64</b></span>
+          <span class="badge badge-4" id="hero-badge-4"><span class="badge-label">الثقة</span> <b>77</b></span>
         </div>
       </div>
     </div>
