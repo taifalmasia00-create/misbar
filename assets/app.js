@@ -85,6 +85,10 @@ function normalizeUrl(raw) {
   return raw;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function setLoading(isLoading) {
   scanBtn.disabled = isLoading;
   scanBtnText.textContent = isLoading ? "جاري الفحص..." : "ابدأ الفحص";
@@ -103,6 +107,9 @@ function friendlyError(err) {
   }
   if (msg.includes("no longer available") || (msg.includes("404") && msg.includes("model"))) {
     return "الموديل اللي بتستخدمه اتقفل من جوجل. حدّث ثابت MODEL في assets/app.js لأحدث موديل متاح (شوف ai.google.dev/gemini-api/docs/models).";
+  }
+  if (msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("high demand")) {
+    return "الموديل زحمة جدًا من كتر الطلب دلوقتي حتى بعد إعادة المحاولة. جرّب تاني بعد شوية.";
   }
   if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) {
     return "تجاوزت الحد المجاني المسموح به مؤقتًا. استنى شوية وحاول تاني.";
@@ -156,33 +163,43 @@ async function runAnalysis(apiKey, url, pageText) {
 
   const userMsg = `رابط الموقع: ${url}\n\nمحتوى الصفحة (نص مستخرج):\n${pageText}`;
 
-  const res = await fetch(GEMINI_ENDPOINT(MODEL, apiKey), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const requestBody = JSON.stringify({
+    systemInstruction: {
+      role: "system",
+      parts: [{ text: system }],
     },
-    body: JSON.stringify({
-      systemInstruction: {
-        role: "system",
-        parts: [{ text: system }],
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: userMsg }],
       },
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: userMsg }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens: 1800,
-        responseMimeType: "application/json",
-      },
-    }),
+    ],
+    generationConfig: {
+      temperature: 0.4,
+      maxOutputTokens: 1800,
+      responseMimeType: "application/json",
+    },
   });
 
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new Error("API " + res.status + ": " + errBody.slice(0, 200));
+  const MAX_ATTEMPTS = 3;
+  let res, errBody;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    res = await fetch(GEMINI_ENDPOINT(MODEL, apiKey), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: requestBody,
+    });
+
+    if (res.ok) break;
+
+    errBody = await res.text();
+    const transient = res.status === 503 || res.status === 429 || res.status >= 500;
+    if (!transient || attempt === MAX_ATTEMPTS) {
+      throw new Error("API " + res.status + ": " + errBody.slice(0, 200));
+    }
+    // النموذج مزدحم مؤقتًا (503) أو تجاوزنا معدل الطلبات (429) — نعيد المحاولة بعد توقف قصير
+    showStatus("الموديل مزدحم مؤقتًا، بنعيد المحاولة (" + attempt + "/" + MAX_ATTEMPTS + ")...", "loading");
+    await sleep(1200 * attempt);
   }
 
   const data = await res.json();
