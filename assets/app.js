@@ -1,11 +1,14 @@
 /* =========================================================
    مِسبار — منطق التطبيق
    1) يجيب محتوى الصفحة عبر خدمة قراءة نصية (بدون مشاكل CORS)
-   2) يبعت المحتوى لموديل Claude ويطلب تقرير JSON منظم
-   3) يعرض التقرير في الداشبورد
+   2) (اختياري) يكتشف منافسين حقيقيين عبر بحث جوجل المدمج في Gemini
+      ويقرا محتوى مواقعهم
+   3) يبعت كل المحتوى لموديل Gemini ويطلب تقرير JSON منظم (يشمل
+      مقارنة بالمنافسين لو موجودين)
+   4) يعرض التقرير في الداشبورد
 ========================================================= */
 
-const MODEL = "gemini-3.5-flash-lite";
+const MODEL = "gemini-2.5-flash-lite";
 const GEMINI_ENDPOINT = (model, key) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 const READER_PREFIX = "https://r.jina.ai/";
@@ -17,6 +20,7 @@ const heroForm = document.getElementById("quick-scan-form");
 const heroUrlInput = document.getElementById("hero-url");
 const apiKeyInput = document.getElementById("api-key");
 const rememberBox = document.getElementById("remember-key");
+const compareBox = document.getElementById("compare-competitors");
 const toggleKeyBtn = document.getElementById("toggle-key");
 const scanBtn = document.getElementById("scan-btn");
 const scanBtnText = document.getElementById("scan-btn-text");
@@ -67,8 +71,36 @@ form.addEventListener("submit", async (e) => {
     showStatus("بنقرأ محتوى الصفحة...", "loading");
     const pageText = await fetchPageContent(url);
 
+    let competitors = [];
+    if (compareBox && compareBox.checked) {
+      try {
+        showStatus("بندوّر على منافسين حقيقيين في نفس المجال...", "loading");
+        const found = await findCompetitors(apiKey, url, pageText);
+
+        if (found.length) {
+          showStatus("بنقرا مواقع المنافسين (" + found.length + ")...", "loading");
+          const withText = await Promise.all(
+            found.map(async (c) => {
+              try {
+                const text = await fetchPageContent(c.url, 4000);
+                return { ...c, text };
+              } catch (e) {
+                return { ...c, text: null };
+              }
+            })
+          );
+          // نستبعد أي منافس تعذّرت قراءة موقعه بالكامل
+          competitors = withText.filter((c) => c.text);
+        }
+      } catch (e) {
+        console.error("competitor discovery failed:", e);
+        // فشل اكتشاف المنافسين مش لازم يوقف الفحص الأساسي — نكمل من غيرهم
+        competitors = [];
+      }
+    }
+
     showStatus("بنحلل الموقع بالذكاء الاصطناعي...", "loading");
-    const analysis = await runAnalysis(apiKey, url, pageText);
+    const analysis = await runAnalysis(apiKey, url, pageText, competitors);
 
     renderReport(url, analysis);
     statusBox.hidden = true;
@@ -124,7 +156,7 @@ function friendlyError(err) {
 }
 
 /* ---------- 1) قراءة محتوى الصفحة ---------- */
-async function fetchPageContent(url) {
+async function fetchPageContent(url, maxLen = 12000) {
   const readerUrl = READER_PREFIX + url;
   let res;
   try {
@@ -137,12 +169,82 @@ async function fetchPageContent(url) {
   }
   const text = await res.text();
   // نحدد الطول عشان ما نتجاوزش حدود السياق
-  return text.slice(0, 12000);
+  return text.slice(0, maxLen);
 }
 
-/* ---------- 2) تحليل عبر Google Gemini API (مجاني عبر AI Studio) ---------- */
-async function runAnalysis(apiKey, url, pageText) {
-  const system = `أنت خبير في تحليل المتاجر الإلكترونية والمواقع من ناحية التصميم وتجربة المستخدم والسيو والتحويل.
+/* ---------- 2) اكتشاف منافسين حقيقيين عبر بحث جوجل المدمج في Gemini ---------- */
+async function findCompetitors(apiKey, url, pageText) {
+  const prompt = `أنت محلل سوق. المطلوب: ابحث فعليًا على الإنترنت عن 2 إلى 3 منافسين حقيقيين ومباشرين
+لهذا الموقع، في نفس المجال والسوق (ولو ممكن نفس الدولة أو المنطقة):
+
+رابط الموقع: ${url}
+لمحة عن نشاطه (من محتوى الصفحة): ${pageText.slice(0, 1500)}
+
+رجّع فقط مصفوفة JSON بالشكل ده بالظبط، بدون أي نص إضافي قبلها أو بعدها، وبدون Markdown code fences:
+[{"name": "اسم الشركة المنافسة", "url": "https://رابط موقعها الرسمي"}]
+
+اختار منافسين حقيقيين وموجودين فعليًا وفي نفس المجال، وتجنّب الشركات العالمية العملاقة إلا لو
+كانت فعلاً منافس مباشر. لو معرفتش تلاقي منافسين حقيقيين، رجّع مصفوفة فاضية [].`;
+
+  const res = await fetch(GEMINI_ENDPOINT(MODEL, apiKey), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      tools: [{ google_search: {} }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: 600 },
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error("API " + res.status + ": " + errBody.slice(0, 200));
+  }
+
+  const data = await res.json();
+  const candidate = (data.candidates || [])[0];
+  const textPart =
+    candidate &&
+    candidate.content &&
+    (candidate.content.parts || []).map((p) => p.text || "").join("");
+
+  if (!textPart) return [];
+
+  const list = extractJson(textPart, "array");
+  if (!Array.isArray(list)) return [];
+
+  return list
+    .filter((c) => c && c.name && c.url)
+    .slice(0, 3)
+    .map((c) => ({ name: String(c.name), url: normalizeUrl(String(c.url).trim()) }));
+}
+
+/* استخراج JSON من رد قد يحتوي نص إضافي حول الكائن/المصفوفة المطلوبة */
+function extractJson(text, kind) {
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    // نحاول نلقط أول [ ... ] أو { ... } موجودة في النص
+    const open = kind === "array" ? "[" : "{";
+    const close = kind === "array" ? "]" : "}";
+    const start = cleaned.indexOf(open);
+    const end = cleaned.lastIndexOf(close);
+    if (start !== -1 && end !== -1 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1));
+      } catch (e2) {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+/* ---------- 3) تحليل عبر Google Gemini API (مجاني عبر AI Studio) ---------- */
+async function runAnalysis(apiKey, url, pageText, competitors) {
+  const hasCompetitors = Array.isArray(competitors) && competitors.length > 0;
+
+  let system = `أنت خبير في تحليل المتاجر الإلكترونية والمواقع من ناحية التصميم وتجربة المستخدم والسيو والتحويل.
 مهمتك: تحليل محتوى الصفحة المُرسلة لك وإرجاع تقرير بصيغة JSON فقط، بدون أي نص إضافي قبله أو بعده، بدون Markdown code fences.
 الصيغة المطلوبة بالضبط:
 {
@@ -157,11 +259,40 @@ async function runAnalysis(apiKey, url, pageText) {
   ],
   "strengths": ["نقطة قوة 1", "نقطة قوة 2", "نقطة قوة 3"],
   "weaknesses": ["نقطة ضعف 1", "نقطة ضعف 2", "نقطة ضعف 3"],
-  "recommendations": ["توصية عملية 1", "توصية عملية 2", "توصية عملية 3", "توصية عملية 4"]
+  "recommendations": ["توصية عملية 1", "توصية عملية 2", "توصية عملية 3", "توصية عملية 4"]`;
+
+  if (hasCompetitors) {
+    system += `,
+  "competitive_summary": "فقرة من 2-3 جمل تلخص الوضع التنافسي للموقع الأساسي مقارنة بكل المنافسين مجتمعين",
+  "competitors": [
+    {
+      "name": "اسم المنافس بالظبط زي ما وصلك",
+      "url": "رابطه بالظبط زي ما وصلك",
+      "strengths": ["حاجة المنافس ده أحسن فيها من الموقع الأساسي 1", "حاجة تانية 2"],
+      "weaknesses": ["حاجة المنافس ده أضعف فيها من الموقع الأساسي 1", "حاجة تانية 2"],
+      "comparison": "جملة أو اتنين توضح مين أفضل بالظبط بين الموقع الأساسي وده وليه"
+    }
+  ]`;
+  }
+
+  system += `
 }
 اكتب كل النصوص بالعربية الفصحى البسيطة، وكن محددًا وواقعيًا بناءً على المحتوى الفعلي المُرسل، لا تخترع معلومات غير موجودة في النص.`;
 
-  const userMsg = `رابط الموقع: ${url}\n\nمحتوى الصفحة (نص مستخرج):\n${pageText}`;
+  if (hasCompetitors) {
+    system += `
+مهم: احسب نقاط القوة والضعف الخاصة بالموقع الأساسي (strengths/weaknesses) بمعزل عن المنافسين — دي خاصة بيه لوحده.
+أما داخل مصفوفة "competitors"، فقارن كل منافس بالموقع الأساسي تحديدًا، بناءً على المحتوى الفعلي المُرسل لكل موقع فقط.`;
+  }
+
+  let userMsg = `رابط الموقع الأساسي: ${url}\n\nمحتوى الصفحة الأساسية (نص مستخرج):\n${pageText}`;
+
+  if (hasCompetitors) {
+    userMsg += `\n\n---\nمواقع المنافسين اللي تحتاج تقارن الموقع الأساسي بيهم:\n`;
+    competitors.forEach((c, i) => {
+      userMsg += `\n[منافس ${i + 1}] الاسم: ${c.name} — الرابط: ${c.url}\nمحتوى صفحته (نص مستخرج):\n${c.text || "(تعذّرت قراءة محتوى هذا الموقع)"}\n`;
+    });
+  }
 
   const requestBody = JSON.stringify({
     systemInstruction: {
@@ -176,7 +307,7 @@ async function runAnalysis(apiKey, url, pageText) {
     ],
     generationConfig: {
       temperature: 0.4,
-      maxOutputTokens: 1800,
+      maxOutputTokens: hasCompetitors ? 3000 : 1800,
       responseMimeType: "application/json",
     },
   });
@@ -226,7 +357,7 @@ async function runAnalysis(apiKey, url, pageText) {
   }
 }
 
-/* ---------- 3) عرض التقرير ---------- */
+/* ---------- 4) عرض التقرير ---------- */
 function renderReport(url, data) {
   report.hidden = false;
 
@@ -268,7 +399,68 @@ function renderReport(url, data) {
     recoList.appendChild(li);
   });
 
+  renderCompetitors(data.competitors, data.competitive_summary);
+
   report.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderCompetitors(competitors, summary) {
+  const block = document.getElementById("competitors-block");
+  const grid = document.getElementById("competitors-grid");
+  const summaryEl = document.getElementById("competitors-summary");
+
+  if (!Array.isArray(competitors) || competitors.length === 0) {
+    block.hidden = true;
+    return;
+  }
+
+  block.hidden = false;
+  summaryEl.textContent = summary || "";
+  grid.innerHTML = "";
+
+  competitors.forEach((c) => {
+    const card = document.createElement("div");
+    card.className = "competitor-card";
+
+    const safeUrl = /^https?:\/\//i.test(c.url || "") ? c.url : "";
+    const linkHtml = safeUrl
+      ? `<a class="competitor-link" href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">${escapeHtml(hostOf(safeUrl))}</a>`
+      : "";
+
+    card.innerHTML = `
+      <div class="competitor-head">
+        <span class="competitor-name">${escapeHtml(c.name || "منافس")}</span>
+        ${linkHtml}
+      </div>
+      ${c.comparison ? `<p class="competitor-comparison">${escapeHtml(c.comparison)}</p>` : ""}
+      <div class="competitor-lists">
+        <div class="competitor-strengths">
+          <h5>نقاط قوته مقارنة بيك</h5>
+          <ul></ul>
+        </div>
+        <div class="competitor-weaknesses">
+          <h5>نقاط ضعفه مقارنة بيك</h5>
+          <ul></ul>
+        </div>
+      </div>
+    `;
+
+    const strengthsUl = card.querySelector(".competitor-strengths ul");
+    (c.strengths || []).forEach((s) => {
+      const li = document.createElement("li");
+      li.textContent = s;
+      strengthsUl.appendChild(li);
+    });
+
+    const weaknessesUl = card.querySelector(".competitor-weaknesses ul");
+    (c.weaknesses || []).forEach((w) => {
+      const li = document.createElement("li");
+      li.textContent = w;
+      weaknessesUl.appendChild(li);
+    });
+
+    grid.appendChild(card);
+  });
 }
 
 function fillList(id, items) {

@@ -481,6 +481,67 @@ section { padding: 88px 0; }
 .reco-block ol { margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 12px; }
 .reco-block li { font-size: 14.5px; color: var(--paper); }
 
+/* competitors comparison */
+.competitors-block { margin-top: 34px; padding-top: 30px; border-top: 1px solid var(--line); }
+.competitors-block h4 { font-size: 15px; margin-bottom: 10px; }
+.competitors-summary { color: var(--mist); font-size: 14px; margin: 0 0 20px; }
+.competitors-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+}
+.competitor-card {
+  padding: 20px 20px 22px;
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.competitor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.competitor-name { font-family: var(--font-display); font-weight: 800; font-size: 15px; }
+.competitor-link {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--signal);
+  text-decoration: none;
+  direction: ltr;
+}
+.competitor-link:hover { text-decoration: underline; }
+.competitor-comparison {
+  font-size: 13.5px;
+  color: var(--paper);
+  background: var(--panel-2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+.competitor-lists { display: flex; flex-direction: column; gap: 10px; }
+.competitor-lists h5 { font-size: 12.5px; color: var(--mist); margin: 0 0 6px; font-weight: 600; }
+.competitor-lists ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.competitor-lists li {
+  font-size: 13px;
+  color: var(--paper);
+  padding-inline-start: 18px;
+  position: relative;
+}
+.competitor-strengths li::before {
+  content: "▲";
+  position: absolute; inset-inline-start: 0;
+  color: var(--flare);
+  font-size: 10px;
+}
+.competitor-weaknesses li::before {
+  content: "▽";
+  position: absolute; inset-inline-start: 0;
+  color: var(--signal);
+  font-size: 10px;
+}
+
 /* ---------------- final cta ---------------- */
 .final-cta-inner {
   text-align: center;
