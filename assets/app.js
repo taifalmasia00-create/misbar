@@ -8,7 +8,7 @@
    4) يعرض التقرير في الداشبورد
 ========================================================= */
 
-const MODEL = "gemini-2.5-flash-lite";
+const MODEL = "gemini-3.5-flash-lite";
 const GEMINI_ENDPOINT = (model, key) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 const READER_PREFIX = "https://r.jina.ai/";
