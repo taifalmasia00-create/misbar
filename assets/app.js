@@ -27,6 +27,12 @@ const scanBtnText = document.getElementById("scan-btn-text");
 const statusBox = document.getElementById("status");
 const report = document.getElementById("report");
 
+const heroMock = document.getElementById("hero-mock");
+const heroBrowserUrl = document.getElementById("hero-browser-url");
+const heroBrowserBody = document.getElementById("hero-browser-body");
+const heroScreenshot = document.getElementById("hero-screenshot");
+const heroBadgeEls = [1, 2, 3, 4].map((n) => document.getElementById("hero-badge-" + n));
+
 // استرجاع مفتاح محفوظ سابقًا
 const savedKey = localStorage.getItem(STORAGE_KEY);
 if (savedKey) {
@@ -66,6 +72,7 @@ form.addEventListener("submit", async (e) => {
 
   setLoading(true);
   report.hidden = true;
+  resetHeroPreview();
 
   try {
     showStatus("بنقرأ محتوى الصفحة...", "loading");
@@ -106,6 +113,7 @@ form.addEventListener("submit", async (e) => {
     const analysis = await runAnalysis(apiKey, url, pageText, competitors);
 
     renderReport(url, analysis);
+    updateHeroPreview(url, analysis);
     if (competitorsNote) {
       showStatus(competitorsNote);
     } else {
@@ -114,6 +122,7 @@ form.addEventListener("submit", async (e) => {
   } catch (err) {
     console.error(err);
     showStatus(friendlyError(err), "error");
+    if (heroBrowserBody) heroBrowserBody.classList.remove("is-scanning");
   } finally {
     setLoading(false);
   }
@@ -122,6 +131,52 @@ form.addEventListener("submit", async (e) => {
 function normalizeUrl(raw) {
   if (!/^https?:\/\//i.test(raw)) return "https://" + raw;
   return raw;
+}
+
+/* إرجاع معاينة الهيرو لحالة "بيفحص" قبل بدء التحليل */
+function resetHeroPreview() {
+  if (!heroMock) return;
+  heroBrowserBody.classList.add("is-scanning");
+}
+
+/* تحديث معاينة الهيرو بلقطة فعلية من الموقع وأرقام حقيقية من التحليل */
+function updateHeroPreview(url, data) {
+  if (!heroMock) return;
+
+  heroBrowserBody.classList.remove("is-scanning");
+  heroBrowserUrl.textContent = hostOf(url);
+
+  // لقطة فعلية لشكل الموقع عبر خدمة سكرين شوت مجانية بدون مفتاح (thum.io)
+  const shotUrl = "https://image.thum.io/get/width/900/crop/700/noanimate/" + url;
+  heroScreenshot.onload = () => {
+    heroBrowserBody.classList.add("has-screenshot");
+    heroScreenshot.hidden = false;
+  };
+  heroScreenshot.onerror = () => {
+    // معرفناش ناخد لقطة للموقع (بيمنع embedding مثلًا) — نسيب شكل الهيكل الوهمي
+    heroBrowserBody.classList.remove("has-screenshot");
+    heroScreenshot.hidden = true;
+  };
+  heroScreenshot.src = shotUrl;
+
+  // أرقام حقيقية من التحليل بدل الأرقام الوهمية
+  const cats = (data.categories || []).slice(0, heroBadgeEls.length);
+  heroBadgeEls.forEach((el, i) => {
+    if (!el) return;
+    const cat = cats[i];
+    if (!cat) {
+      el.hidden = true;
+      return;
+    }
+    const labelEl = el.querySelector(".badge-label");
+    const valueEl = el.querySelector("b");
+    if (labelEl) labelEl.textContent = cat.name;
+    if (valueEl) valueEl.textContent = Math.round(clamp(Number(cat.score) || 0, 0, 100));
+    el.hidden = false;
+    el.classList.remove("badge-updated");
+    void el.offsetWidth; // نجبر إعادة تشغيل الأنيميشن
+    el.classList.add("badge-updated");
+  });
 }
 
 function sleep(ms) {

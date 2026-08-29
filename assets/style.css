@@ -248,7 +248,9 @@ input:focus, textarea:focus {
   position: relative;
   padding: 24px 22px 32px;
   min-height: 260px;
+  overflow: hidden;
 }
+.hero-skeleton { position: relative; }
 .fake-line, .fake-block, .fake-card {
   background: var(--panel-2);
   border-radius: 6px;
@@ -266,6 +268,7 @@ input:focus, textarea:focus {
   box-shadow: 0 0 16px 2px rgba(34,230,197,0.6);
   animation: scan 3.4s ease-in-out infinite;
 }
+.browser-body.is-scanning .scan-line { animation-duration: 1.1s; }
 @keyframes scan {
   0% { top: 6%; opacity: 0; }
   8% { opacity: 1; }
@@ -273,6 +276,16 @@ input:focus, textarea:focus {
   58% { opacity: 0; }
   100% { top: 92%; opacity: 0; }
 }
+.hero-screenshot {
+  display: block;
+  width: 100%;
+  height: 260px;
+  object-fit: cover;
+  object-position: top center;
+  background: var(--panel-2);
+}
+.browser-body.has-screenshot { padding: 0; }
+.browser-body.has-screenshot .hero-skeleton { display: none; }
 .badge {
   position: absolute;
   font-family: var(--font-mono);
@@ -284,6 +297,7 @@ input:focus, textarea:focus {
   border-radius: 999px;
   white-space: nowrap;
   animation: fadeUp 0.6s ease both;
+  transition: color .2s ease;
 }
 .badge b { color: var(--signal); margin-inline-start: 4px; }
 .badge-1 { top: 8%; inset-inline-end: -6%; animation-delay: 1.2s; }
@@ -294,6 +308,11 @@ input:focus, textarea:focus {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+@keyframes badgePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+.badge.badge-updated { animation: badgePulse 0.5s ease; border-color: var(--signal-dim); }
 
 @media (max-width: 900px) {
   .badge { display: none; }
