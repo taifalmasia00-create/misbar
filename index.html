@@ -173,6 +173,10 @@
           <input type="checkbox" id="remember-key">
           <span>احفظ المفتاح في هذا المتصفح</span>
         </label>
+        <label class="remember">
+          <input type="checkbox" id="compare-competitors" checked>
+          <span>قارن تلقائيًا مع 2-3 منافسين حقيقيين في نفس المجال</span>
+        </label>
         <button type="submit" class="btn btn-primary btn-wide" id="scan-btn">
           <span id="scan-btn-text">ابدأ الفحص</span>
         </button>
@@ -218,6 +222,12 @@
           <h4>توصيات عملية</h4>
           <ol id="recommendations-list"></ol>
         </div>
+
+        <div class="competitors-block" id="competitors-block" hidden>
+          <h4>المقارنة مع المنافسين</h4>
+          <p class="competitors-summary" id="competitors-summary"></p>
+          <div class="competitors-grid" id="competitors-grid"></div>
+        </div>
       </div>
     </div>
   </section>
@@ -234,8 +244,8 @@
 
 <footer class="site-footer">
   <div class="wrap footer-inner">
-    <span>Marwan Elngdy.</span>
-    <span class="footer-muted">صُنعت بكفاءة عالية.</span>
+    <span>مِسبار — أداة تحليل مفتوحة المصدر، مبنية على Claude API.</span>
+    <span class="footer-muted">صُنعت لتُعدَّل وتُنشر على GitHub Pages بحرية.</span>
   </div>
 </footer>
 
