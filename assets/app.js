@@ -5,7 +5,9 @@
    3) يعرض التقرير في الداشبورد
 ========================================================= */
 
-const MODEL = "claude-sonnet-4-6";
+const MODEL = "gemini-2.5-flash";
+const GEMINI_ENDPOINT = (model, key) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 const READER_PREFIX = "https://r.jina.ai/";
 const STORAGE_KEY = "misbar_api_key";
 
@@ -48,7 +50,7 @@ form.addEventListener("submit", async (e) => {
   const apiKey = apiKeyInput.value.trim();
 
   if (!apiKey) {
-    showStatus("محتاج تدخل مفتاح Anthropic API الأول عشان الأداة تشتغل.", "error");
+    showStatus("محتاج تدخل مفتاح Google AI Studio (Gemini) الأول عشان الأداة تشتغل.", "error");
     return;
   }
 
@@ -96,8 +98,11 @@ function showStatus(msg, type) {
 
 function friendlyError(err) {
   const msg = String(err && err.message ? err.message : err);
-  if (msg.includes("401") || msg.includes("authentication")) {
-    return "مفتاح الـ API مش صحيح أو منتهي. تأكد منه من console.anthropic.com.";
+  if (msg.includes("400") || msg.includes("401") || msg.includes("403") || msg.includes("API_KEY_INVALID") || msg.includes("authentication")) {
+    return "مفتاح الـ API مش صحيح أو مش مفعّل. تأكد منه من aistudio.google.com/apikey.";
+  }
+  if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) {
+    return "تجاوزت الحد المجاني المسموح به مؤقتًا. استنى شوية وحاول تاني.";
   }
   if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
     return "في مشكلة اتصال. تأكد من الإنترنت أو من صحة الرابط وحاول تاني.";
@@ -125,7 +130,7 @@ async function fetchPageContent(url) {
   return text.slice(0, 12000);
 }
 
-/* ---------- 2) تحليل عبر Claude API ---------- */
+/* ---------- 2) تحليل عبر Google Gemini API (مجاني عبر AI Studio) ---------- */
 async function runAnalysis(apiKey, url, pageText) {
   const system = `أنت خبير في تحليل المتاجر الإلكترونية والمواقع من ناحية التصميم وتجربة المستخدم والسيو والتحويل.
 مهمتك: تحليل محتوى الصفحة المُرسلة لك وإرجاع تقرير بصيغة JSON فقط، بدون أي نص إضافي قبله أو بعده، بدون Markdown code fences.
@@ -148,19 +153,27 @@ async function runAnalysis(apiKey, url, pageText) {
 
   const userMsg = `رابط الموقع: ${url}\n\nمحتوى الصفحة (نص مستخرج):\n${pageText}`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch(GEMINI_ENDPOINT(MODEL, apiKey), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
     },
     body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 1500,
-      system: system,
-      messages: [{ role: "user", content: userMsg }],
+      systemInstruction: {
+        role: "system",
+        parts: [{ text: system }],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: userMsg }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.4,
+        maxOutputTokens: 1800,
+        responseMimeType: "application/json",
+      },
     }),
   });
 
@@ -170,10 +183,22 @@ async function runAnalysis(apiKey, url, pageText) {
   }
 
   const data = await res.json();
-  const textBlock = (data.content || []).find((b) => b.type === "text");
-  if (!textBlock) throw new Error("لم يرجع النموذج أي رد نصي.");
 
-  const cleaned = textBlock.text.replace(/```json|```/g, "").trim();
+  const candidate = (data.candidates || [])[0];
+  const finishReason = candidate && candidate.finishReason;
+  const textPart =
+    candidate &&
+    candidate.content &&
+    (candidate.content.parts || []).map((p) => p.text || "").join("");
+
+  if (!textPart) {
+    if (finishReason === "SAFETY" || finishReason === "PROHIBITED_CONTENT") {
+      throw new Error("النموذج رفض تحليل هذا الرابط لأسباب تتعلق بالمحتوى.");
+    }
+    throw new Error("لم يرجع النموذج أي رد نصي.");
+  }
+
+  const cleaned = textPart.replace(/```json|```/g, "").trim();
   try {
     return JSON.parse(cleaned);
   } catch (e) {
