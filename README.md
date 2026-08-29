@@ -22,7 +22,7 @@ misbar/
 1. المستخدم يدخل رابط الموقع، والأداة تجيب نسخة نصية من الصفحة عبر خدمة
    [Jina AI Reader](https://jina.ai/reader) (`https://r.jina.ai/<url>`) — مجانية ومفتوحة،
    وبتحل مشكلة CORS اللي بتمنع قراءة أي موقع مباشرة من المتصفح.
-2. النص المستخرج يُرسل إلى Google Gemini API (`gemini-flash-latest`) مع طلب صريح بإرجاع تقرير
+2. النص المستخرج يُرسل إلى Google Gemini API (`gemini-2.5-flash-lite`) مع طلب صريح بإرجاع تقرير
    بصيغة JSON منظمة (نتيجة عامة، محاور، نقاط قوة وضعف، توصيات)، باستخدام `responseMimeType: application/json`
    عشان نضمن رد JSON صافي بدون Markdown fences.
 3. الواجهة تعرض النتيجة كداشبورد تفاعلي.
@@ -74,10 +74,10 @@ npx serve .
 - الألوان والخطوط كلها معرّفة كـ CSS variables في أول ملف `assets/style.css`.
 - محاور التحليل (الخمسة) تقدر تعدّل عددها ومحتواها من الـ `system prompt` في `assets/app.js`
   داخل دالة `runAnalysis`.
-- النموذج المستخدم `gemini-flash-latest` — دا alias بيوجّه تلقائيًا لأحدث نسخة Flash مستقرة من
-  جوجل، عشان تتفادى مشكلة إن موديل معين يتقفل فجأة قدام مفاتيح API جديدة (زي ما حصل مع
-  `gemini-2.5-flash`). لو عايز تثبّت نسخة معينة بدل الـ alias، غيّر ثابت `MODEL` في
-  `assets/app.js` — راجع القائمة الحالية على [ai.google.dev/gemini-api/docs/models](https://ai.google.dev/gemini-api/docs/models).
+- النموذج المستخدم `gemini-2.5-flash-lite` — قابل للتغيير من ثابت `MODEL` في `assets/app.js`.
+  لو استخدمت alias زي `gemini-flash-latest` وواجهت مشاكل توفر (503) أو رفض للموديل (404) قدام
+  مفتاحك، الأفضل تثبّت اسم موديل معيّن شغال عندك بالفعل — راجع القائمة الحالية على
+  [ai.google.dev/gemini-api/docs/models](https://ai.google.dev/gemini-api/docs/models).
 
 ## الرخصة
 
