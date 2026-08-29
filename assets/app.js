@@ -2,26 +2,23 @@
    مِسبار — منطق التطبيق
    1) يجيب محتوى الصفحة عبر خدمة قراءة نصية (بدون مشاكل CORS)
    2) (اختياري) يكتشف منافسين حقيقيين عبر بحث جوجل المدمج في Gemini
-      ويقرا محتوى مواقعهم
-   3) يبعت كل المحتوى لموديل Gemini ويطلب تقرير JSON منظم (يشمل
-      مقارنة بالمنافسين لو موجودين)
-   4) يعرض التقرير في الداشبورد
+      ويقرا محتوى مواقعهم، مع سبب اختيار كل واحد فيهم
+   3) يبعت كل المحتوى لموديل Gemini (عبر Worker بيخبي المفتاح)
+      ويطلب تقرير JSON منظم
+   4) يعرض التقرير في الداشبورد، وبيدي المستخدم إمكانية "يعترض"
+      على أي نقطة ويطلب من الذكاء الاصطناعي يراجعها تاني
 ========================================================= */
 
-const MODEL = "gemini-3.5-flash-lite";
-const GEMINI_ENDPOINT = (model, key) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+// المسار بتاع الـ Worker اللي بيخبي مفتاح Gemini على السيرفر (شوف worker/README.md للنشر)
+const WORKER_ENDPOINT = "https://misbar-proxy.YOUR-SUBDOMAIN.workers.dev/gemini";
+const MODEL = "gemini-2.5-flash-lite";
 const READER_PREFIX = "https://r.jina.ai/";
-const STORAGE_KEY = "misbar_api_key";
 
 const form = document.getElementById("analyze-form");
 const urlInput = document.getElementById("site-url");
 const heroForm = document.getElementById("quick-scan-form");
 const heroUrlInput = document.getElementById("hero-url");
-const apiKeyInput = document.getElementById("api-key");
-const rememberBox = document.getElementById("remember-key");
 const compareBox = document.getElementById("compare-competitors");
-const toggleKeyBtn = document.getElementById("toggle-key");
 const scanBtn = document.getElementById("scan-btn");
 const scanBtnText = document.getElementById("scan-btn-text");
 const statusBox = document.getElementById("status");
@@ -33,42 +30,20 @@ const heroBrowserBody = document.getElementById("hero-browser-body");
 const heroScreenshot = document.getElementById("hero-screenshot");
 const heroBadgeEls = [1, 2, 3, 4].map((n) => document.getElementById("hero-badge-" + n));
 
-// استرجاع مفتاح محفوظ سابقًا
-const savedKey = localStorage.getItem(STORAGE_KEY);
-if (savedKey) {
-  apiKeyInput.value = savedKey;
-  rememberBox.checked = true;
-}
+// سياق آخر فحص متاح — بنستخدمه لما المستخدم يعترض على نقطة معينة ويطلب مراجعتها
+const lastContext = { url: "", pageText: "", competitorsFound: [] };
 
-toggleKeyBtn.addEventListener("click", () => {
-  const showing = apiKeyInput.type === "text";
-  apiKeyInput.type = showing ? "password" : "text";
-  toggleKeyBtn.textContent = showing ? "إظهار" : "إخفاء";
-});
-
-// زر الفحص السريع في الـ hero يمرر القيمة للفورم الرئيسي ويسكرول له
 heroForm.addEventListener("submit", (e) => {
   e.preventDefault();
   urlInput.value = heroUrlInput.value;
   document.getElementById("analyze").scrollIntoView({ behavior: "smooth", block: "start" });
-  apiKeyInput.focus();
+  urlInput.focus();
 });
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const url = normalizeUrl(urlInput.value.trim());
-  const apiKey = apiKeyInput.value.trim();
-
-  if (!apiKey) {
-    showStatus("محتاج تدخل مفتاح Google AI Studio (Gemini) الأول عشان الأداة تشتغل.", "error");
-    return;
-  }
-
-  if (rememberBox.checked) {
-    localStorage.setItem(STORAGE_KEY, apiKey);
-  } else {
-    localStorage.removeItem(STORAGE_KEY);
-  }
+  if (!url) return;
 
   setLoading(true);
   report.hidden = true;
@@ -78,14 +53,19 @@ form.addEventListener("submit", async (e) => {
     showStatus("بنقرأ محتوى الصفحة...", "loading");
     const pageText = await fetchPageContent(url);
 
+    lastContext.url = url;
+    lastContext.pageText = pageText;
+    lastContext.competitorsFound = [];
+
     let competitors = [];
     let competitorsNote = "";
     if (compareBox && compareBox.checked) {
       try {
         showStatus("بندوّر على منافسين حقيقيين في نفس المجال...", "loading");
-        const found = await findCompetitors(apiKey, url, pageText);
+        const found = await findCompetitors(url, pageText);
 
         if (found.length) {
+          lastContext.competitorsFound = found;
           showStatus("بنقرا مواقع المنافسين (" + found.length + ")...", "loading");
           competitors = await Promise.all(
             found.map(async (c) => {
@@ -93,7 +73,6 @@ form.addEventListener("submit", async (e) => {
                 const text = await fetchPageContent(c.url, 4000);
                 return { ...c, text };
               } catch (e) {
-                // معرفناش نقرا محتوى موقعه بالكامل، بس لسه نقدر نقارنه بمعرفة Gemini العامة عنه
                 return { ...c, text: null };
               }
             })
@@ -103,14 +82,15 @@ form.addEventListener("submit", async (e) => {
         }
       } catch (e) {
         console.error("competitor discovery failed:", e);
-        // فشل اكتشاف المنافسين مش لازم يوقف الفحص الأساسي — نكمل من غيرهم
         competitors = [];
         competitorsNote = "حصلت مشكلة أثناء البحث عن المنافسين، فالتقرير هيبقى من غيرهم.";
       }
     }
 
     showStatus("بنحلل الموقع بالذكاء الاصطناعي...", "loading");
-    const analysis = await runAnalysis(apiKey, url, pageText, competitors);
+    const analysis = await runAnalysis(url, pageText, competitors);
+
+    attachCompetitorReasons(analysis, competitors);
 
     renderReport(url, analysis);
     updateHeroPreview(url, analysis);
@@ -129,37 +109,43 @@ form.addEventListener("submit", async (e) => {
 });
 
 function normalizeUrl(raw) {
+  if (!raw) return "";
   if (!/^https?:\/\//i.test(raw)) return "https://" + raw;
   return raw;
 }
 
-/* إرجاع معاينة الهيرو لحالة "بيفحص" قبل بدء التحليل */
+function attachCompetitorReasons(analysis, competitorsWithText) {
+  if (!analysis || !Array.isArray(analysis.competitors)) return;
+  analysis.competitors.forEach((c) => {
+    const match = competitorsWithText.find(
+      (found) => found.url === c.url || (found.name && c.name && found.name.trim() === c.name.trim())
+    );
+    if (match && match.reason) c.reason = match.reason;
+  });
+}
+
 function resetHeroPreview() {
   if (!heroMock) return;
   heroBrowserBody.classList.add("is-scanning");
 }
 
-/* تحديث معاينة الهيرو بلقطة فعلية من الموقع وأرقام حقيقية من التحليل */
 function updateHeroPreview(url, data) {
   if (!heroMock) return;
 
   heroBrowserBody.classList.remove("is-scanning");
   heroBrowserUrl.textContent = hostOf(url);
 
-  // لقطة فعلية لشكل الموقع عبر خدمة سكرين شوت مجانية بدون مفتاح (thum.io)
   const shotUrl = "https://image.thum.io/get/width/900/crop/700/noanimate/" + url;
   heroScreenshot.onload = () => {
     heroBrowserBody.classList.add("has-screenshot");
     heroScreenshot.hidden = false;
   };
   heroScreenshot.onerror = () => {
-    // معرفناش ناخد لقطة للموقع (بيمنع embedding مثلًا) — نسيب شكل الهيكل الوهمي
     heroBrowserBody.classList.remove("has-screenshot");
     heroScreenshot.hidden = true;
   };
   heroScreenshot.src = shotUrl;
 
-  // أرقام حقيقية من التحليل بدل الأرقام الوهمية
   const cats = (data.categories || []).slice(0, heroBadgeEls.length);
   heroBadgeEls.forEach((el, i) => {
     if (!el) return;
@@ -174,7 +160,7 @@ function updateHeroPreview(url, data) {
     if (valueEl) valueEl.textContent = Math.round(clamp(Number(cat.score) || 0, 0, 100));
     el.hidden = false;
     el.classList.remove("badge-updated");
-    void el.offsetWidth; // نجبر إعادة تشغيل الأنيميشن
+    void el.offsetWidth;
     el.classList.add("badge-updated");
   });
 }
@@ -196,17 +182,21 @@ function showStatus(msg, type) {
 
 function friendlyError(err) {
   const msg = String(err && err.message ? err.message : err);
-  if (msg.includes("400") || msg.includes("401") || msg.includes("403") || msg.includes("API_KEY_INVALID") || msg.includes("authentication")) {
-    return "مفتاح الـ API مش صحيح أو مش مفعّل. تأكد منه من aistudio.google.com/apikey.";
+  if (msg.includes("الـ Worker مش متظبط")) return msg;
+  if (msg.includes("فشلت كل المفاتيح")) {
+    return "الأداة وصلت لحد الاستخدام المجاني المتاح دلوقتي من الطرفين. جرّب تاني بعد شوية.";
+  }
+  if (msg.includes("400") || msg.includes("401") || msg.includes("403") || msg.includes("API_KEY_INVALID")) {
+    return "في مشكلة في إعداد الأداة من ناحيتنا. جرّب تاني كمان شوية.";
   }
   if (msg.includes("no longer available") || (msg.includes("404") && msg.includes("model"))) {
-    return "الموديل اللي بتستخدمه اتقفل من جوجل. حدّث ثابت MODEL في assets/app.js لأحدث موديل متاح (شوف ai.google.dev/gemini-api/docs/models).";
+    return "الموديل اللي بتستخدمه اتقفل من جوجل. حدّث ثابت MODEL في assets/app.js لأحدث موديل متاح.";
   }
   if (msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("high demand")) {
     return "الموديل زحمة جدًا من كتر الطلب دلوقتي حتى بعد إعادة المحاولة. جرّب تاني بعد شوية.";
   }
   if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) {
-    return "تجاوزت الحد المجاني المسموح به مؤقتًا. استنى شوية وحاول تاني.";
+    return "تجاوزنا الحد المجاني المسموح به مؤقتًا. استنى شوية وحاول تاني.";
   }
   if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
     return "في مشكلة اتصال. تأكد من الإنترنت أو من صحة الرابط وحاول تاني.";
@@ -230,32 +220,73 @@ async function fetchPageContent(url, maxLen = 12000) {
     throw new Error("تعذّرت قراءة الصفحة (كود " + res.status + "). جرّب رابط تاني.");
   }
   const text = await res.text();
-  // نحدد الطول عشان ما نتجاوزش حدود السياق
   return text.slice(0, maxLen);
 }
 
+/* ---------- استدعاء موحّد لـ Gemini عبر الـ Worker (بيخبي المفتاح ويتنقل بين مفتاحين) ---------- */
+async function callGeminiViaWorker(body) {
+  let res;
+  try {
+    res = await fetch(WORKER_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: MODEL, body }),
+    });
+  } catch (e) {
+    throw new Error("Failed to fetch: تعذّر الوصول لسيرفر الأداة.");
+  }
+
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    throw new Error("رد غير متوقع من سيرفر الأداة.");
+  }
+
+  if (!res.ok) {
+    throw new Error(data.error || "API " + res.status);
+  }
+  return data;
+}
+
+function extractTextPart(data) {
+  const candidate = (data.candidates || [])[0];
+  const finishReason = candidate && candidate.finishReason;
+  const textPart =
+    candidate &&
+    candidate.content &&
+    (candidate.content.parts || []).map((p) => p.text || "").join("");
+
+  if (!textPart) {
+    if (finishReason === "SAFETY" || finishReason === "PROHIBITED_CONTENT") {
+      throw new Error("النموذج رفض تحليل هذا الرابط لأسباب تتعلق بالمحتوى.");
+    }
+    throw new Error("لم يرجع النموذج أي رد نصي.");
+  }
+  return textPart;
+}
+
 /* ---------- 2) اكتشاف منافسين حقيقيين عبر بحث جوجل المدمج في Gemini ---------- */
-async function findCompetitors(apiKey, url, pageText) {
+async function findCompetitors(url, pageText) {
   let list = [];
   try {
-    list = await findCompetitorsGrounded(apiKey, url, pageText);
+    list = await findCompetitorsGrounded(url, pageText);
   } catch (e) {
     console.error("grounded competitor search failed:", e);
   }
 
   if (list.length) return list;
 
-  // لو بحث جوجل المدمج مرجعش حاجة (أو الموديل مش بيدعمه كويس)، نجرب مرة تانية
-  // بمعرفة الموديل العامة بس من غير أداة البحث
   try {
-    return await findCompetitorsFallback(apiKey, url, pageText);
+    return await findCompetitorsFallback(url, pageText);
   } catch (e) {
     console.error("fallback competitor search failed:", e);
     return [];
   }
 }
 
-async function findCompetitorsGrounded(apiKey, url, pageText) {
+async function findCompetitorsGrounded(url, pageText) {
   const prompt = `أنت محلل سوق. المطلوب: ابحث فعليًا على الإنترنت عن 2 إلى 3 منافسين حقيقيين ومباشرين
 لهذا الموقع، في نفس المجال والسوق (ولو ممكن نفس الدولة أو المنطقة):
 
@@ -263,41 +294,24 @@ async function findCompetitorsGrounded(apiKey, url, pageText) {
 لمحة عن نشاطه (من محتوى الصفحة): ${pageText.slice(0, 1500)}
 
 رجّع فقط مصفوفة JSON بالشكل ده بالظبط، بدون أي نص إضافي قبلها أو بعدها، وبدون Markdown code fences:
-[{"name": "اسم الشركة المنافسة", "url": "https://رابط موقعها الرسمي"}]
+[{"name": "اسم الشركة المنافسة", "url": "https://رابط موقعها الرسمي", "reason": "جملة قصيرة توضح ليه ده يعتبر منافس مباشر فعلي (نفس المجال، نفس الجمهور، نفس نوع المنتج...)"}]
 
 اختار منافسين حقيقيين وموجودين فعليًا وفي نفس المجال، وتجنّب الشركات العالمية العملاقة إلا لو
 كانت فعلاً منافس مباشر. لو معرفتش تلاقي منافسين حقيقيين، رجّع مصفوفة فاضية [].`;
 
-  const res = await fetch(GEMINI_ENDPOINT(MODEL, apiKey), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      tools: [{ google_search: {} }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: 1000 },
-    }),
+  const data = await callGeminiViaWorker({
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.4, maxOutputTokens: 1000 },
   });
 
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new Error("API " + res.status + ": " + errBody.slice(0, 200));
-  }
-
-  const data = await res.json();
-  const candidate = (data.candidates || [])[0];
-  const textPart =
-    candidate &&
-    candidate.content &&
-    (candidate.content.parts || []).map((p) => p.text || "").join("");
-
-  if (!textPart) return [];
-
+  const textPart = extractTextPart(data);
   const list = extractJson(textPart, "array");
   return normalizeCompetitorsList(list);
 }
 
 /* محاولة احتياطية من غير أداة بحث جوجل — بتعتمد على معرفة الموديل العامة فقط */
-async function findCompetitorsFallback(apiKey, url, pageText) {
+async function findCompetitorsFallback(url, pageText) {
   const prompt = `أنت محلل سوق. بناءً على معرفتك العامة (من غير بحث حي على الإنترنت)، اقترح 2 إلى 3
 منافسين حقيقيين ومعروفين ومباشرين لهذا الموقع، في نفس المجال والسوق:
 
@@ -305,38 +319,21 @@ async function findCompetitorsFallback(apiKey, url, pageText) {
 لمحة عن نشاطه (من محتوى الصفحة): ${pageText.slice(0, 1500)}
 
 رجّع فقط مصفوفة JSON بالشكل ده بالظبط، بدون أي نص إضافي قبلها أو بعدها:
-[{"name": "اسم الشركة المنافسة", "url": "https://رابط موقعها الرسمي"}]
+[{"name": "اسم الشركة المنافسة", "url": "https://رابط موقعها الرسمي", "reason": "جملة قصيرة توضح ليه ده يعتبر منافس مباشر فعلي"}]
 
 لازم تكون شركات حقيقية موجودة فعليًا وتعرفها بثقة، مش أسماء مخترعة. لو مش متأكد من أي منافس
 حقيقي، رجّع مصفوفة فاضية [].`;
 
-  const res = await fetch(GEMINI_ENDPOINT(MODEL, apiKey), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens: 700,
-        responseMimeType: "application/json",
-      },
-    }),
+  const data = await callGeminiViaWorker({
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.4,
+      maxOutputTokens: 700,
+      responseMimeType: "application/json",
+    },
   });
 
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new Error("API " + res.status + ": " + errBody.slice(0, 200));
-  }
-
-  const data = await res.json();
-  const candidate = (data.candidates || [])[0];
-  const textPart =
-    candidate &&
-    candidate.content &&
-    (candidate.content.parts || []).map((p) => p.text || "").join("");
-
-  if (!textPart) return [];
-
+  const textPart = extractTextPart(data);
   const list = extractJson(textPart, "array");
   return normalizeCompetitorsList(list);
 }
@@ -346,7 +343,11 @@ function normalizeCompetitorsList(list) {
   return list
     .filter((c) => c && c.name && c.url)
     .slice(0, 3)
-    .map((c) => ({ name: String(c.name), url: normalizeUrl(String(c.url).trim()) }));
+    .map((c) => ({
+      name: String(c.name),
+      url: normalizeUrl(String(c.url).trim()),
+      reason: c.reason ? String(c.reason) : "",
+    }));
 }
 
 /* استخراج JSON من رد قد يحتوي نص إضافي حول الكائن/المصفوفة المطلوبة */
@@ -355,7 +356,6 @@ function extractJson(text, kind) {
   try {
     return JSON.parse(cleaned);
   } catch (e) {
-    // نحاول نلقط أول [ ... ] أو { ... } موجودة في النص
     const open = kind === "array" ? "[" : "{";
     const close = kind === "array" ? "]" : "}";
     const start = cleaned.indexOf(open);
@@ -370,8 +370,9 @@ function extractJson(text, kind) {
     return null;
   }
 }
-/* ---------- 3) تحليل عبر Google Gemini API (مجاني عبر AI Studio) ---------- */
-async function runAnalysis(apiKey, url, pageText, competitors) {
+
+/* ---------- 3) تحليل عبر Google Gemini API (عن طريق الـ Worker) ---------- */
+async function runAnalysis(url, pageText, competitors) {
   const hasCompetitors = Array.isArray(competitors) && competitors.length > 0;
 
   let system = `أنت خبير في تحليل المتاجر الإلكترونية والمواقع من ناحية التصميم وتجربة المستخدم والسيو والتحويل.
@@ -424,67 +425,126 @@ async function runAnalysis(apiKey, url, pageText, competitors) {
     });
   }
 
-  const requestBody = JSON.stringify({
-    systemInstruction: {
-      role: "system",
-      parts: [{ text: system }],
-    },
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: userMsg }],
-      },
-    ],
+  const requestBody = {
+    systemInstruction: { role: "system", parts: [{ text: system }] },
+    contents: [{ role: "user", parts: [{ text: userMsg }] }],
     generationConfig: {
       temperature: 0.4,
       maxOutputTokens: hasCompetitors ? 3800 : 2600,
       responseMimeType: "application/json",
     },
-  });
+  };
 
-  const MAX_ATTEMPTS = 3;
-  let res, errBody;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    res = await fetch(GEMINI_ENDPOINT(MODEL, apiKey), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: requestBody,
-    });
-
-    if (res.ok) break;
-
-    errBody = await res.text();
-    const transient = res.status === 503 || res.status === 429 || res.status >= 500;
-    if (!transient || attempt === MAX_ATTEMPTS) {
-      throw new Error("API " + res.status + ": " + errBody.slice(0, 200));
-    }
-    // النموذج مزدحم مؤقتًا (503) أو تجاوزنا معدل الطلبات (429) — نعيد المحاولة بعد توقف قصير
-    showStatus("الموديل مزدحم مؤقتًا، بنعيد المحاولة (" + attempt + "/" + MAX_ATTEMPTS + ")...", "loading");
-    await sleep(1200 * attempt);
-  }
-
-  const data = await res.json();
-
-  const candidate = (data.candidates || [])[0];
-  const finishReason = candidate && candidate.finishReason;
-  const textPart =
-    candidate &&
-    candidate.content &&
-    (candidate.content.parts || []).map((p) => p.text || "").join("");
-
-  if (!textPart) {
-    if (finishReason === "SAFETY" || finishReason === "PROHIBITED_CONTENT") {
-      throw new Error("النموذج رفض تحليل هذا الرابط لأسباب تتعلق بالمحتوى.");
-    }
-    throw new Error("لم يرجع النموذج أي رد نصي.");
-  }
-
+  const data = await callGeminiViaWorker(requestBody);
+  const textPart = extractTextPart(data);
   const cleaned = textPart.replace(/```json|```/g, "").trim();
   try {
     return JSON.parse(cleaned);
   } catch (e) {
     throw new Error("تعذّر تفسير رد النموذج كـ JSON.");
   }
+}
+
+/* ---------- 3.5) مراجعة نقطة معينة لو المستخدم شايف إنها مش صح ---------- */
+async function askAboutClaim(claimLabel, claimText, userNote) {
+  const prompt = `أنت مراجع تدقيق مستقل. معاك تحليل سابق لموقع اتعمل بناءً على محتوى صفحته الفعلي.
+المستخدم (صاحب الموقع أو حد بيراجع التحليل) شايف إن نقطة معينة من التحليل ممكن تكون غير دقيقة،
+وعايز رأي تاني فيها بناءً على نفس المحتوى الفعلي.
+
+رابط الموقع: ${lastContext.url}
+محتوى الصفحة الفعلي (نفس النص اللي اتحلل عليه الموقع، مقتطف): ${lastContext.pageText.slice(0, 4000)}
+
+النقطة المتنازع عليها من التحليل: "${claimLabel}: ${claimText}"
+اعتراض/ملاحظة المستخدم: "${userNote}"
+
+راجع النقطة دي بحياد تام بناءً على المحتوى الفعلي بس، من غير ما تنحاز لأي طرف. رجّع فقط JSON
+بدون أي نص إضافي وبدون Markdown fences بالشكل ده:
+{"verdict": "agree" أو "disagree" أو "partial", "explanation": "شرح واضح ومختصر (2-3 جمل) بالعربية ليه رأيك كده، وهل التحليل الأصلي كان دقيق فعلاً ولا لأ بناءً على المحتوى"}
+verdict = "agree" يعني بتتفق مع اعتراض المستخدم (التحليل الأصلي كان غلط أو غير دقيق).
+verdict = "disagree" يعني التحليل الأصلي كان صح واعتراض المستخدم مش له أساس في المحتوى.
+verdict = "partial" يعني في جزء صح وجزء محتاج توضيح.`;
+
+  const data = await callGeminiViaWorker({
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 500,
+      responseMimeType: "application/json",
+    },
+  });
+
+  const textPart = extractTextPart(data);
+  const parsed = extractJson(textPart, "object");
+  if (!parsed || !parsed.verdict) {
+    throw new Error("تعذّر تفسير رد المراجعة.");
+  }
+  return parsed;
+}
+
+/* ودجت "اعتراض على نتيجة" بيتحط جنب أي نقطة في التقرير */
+function buildChallengeWidget(claimLabel, claimText) {
+  const wrap = document.createElement("div");
+  wrap.className = "challenge";
+
+  const toggleBtn = document.createElement("button");
+  toggleBtn.type = "button";
+  toggleBtn.className = "challenge-toggle";
+  toggleBtn.textContent = "💬 مش موافق على النقطة دي؟";
+  wrap.appendChild(toggleBtn);
+
+  const panel = document.createElement("div");
+  panel.className = "challenge-panel";
+  panel.hidden = true;
+  panel.innerHTML = `
+    <textarea class="challenge-input" rows="2" placeholder="اكتب ليه شايف إن النقطة دي مش صح..."></textarea>
+    <button type="button" class="challenge-submit link-btn">اسأل الذكاء الاصطناعي يراجعها</button>
+    <div class="challenge-result" hidden></div>
+  `;
+  wrap.appendChild(panel);
+
+  const textarea = panel.querySelector(".challenge-input");
+  const submitBtn = panel.querySelector(".challenge-submit");
+  const resultBox = panel.querySelector(".challenge-result");
+
+  toggleBtn.addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) textarea.focus();
+  });
+
+  submitBtn.addEventListener("click", async () => {
+    const note = textarea.value.trim();
+    if (!note) {
+      textarea.focus();
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = "بنراجع...";
+    resultBox.hidden = true;
+
+    try {
+      const verdict = await askAboutClaim(claimLabel, claimText, note);
+      resultBox.hidden = false;
+      resultBox.className =
+        "challenge-result challenge-" +
+        (verdict.verdict === "agree" ? "agree" : verdict.verdict === "partial" ? "partial" : "disagree");
+      const verdictLabel =
+        verdict.verdict === "agree"
+          ? "الذكاء الاصطناعي بيتفق مع ملاحظتك"
+          : verdict.verdict === "partial"
+          ? "في جزء صح من ملاحظتك"
+          : "الذكاء الاصطناعي لسه شايف إن التحليل الأصلي صح";
+      resultBox.innerHTML = `<b>${escapeHtml(verdictLabel)}</b><p>${escapeHtml(verdict.explanation || "")}</p>`;
+    } catch (e) {
+      resultBox.hidden = false;
+      resultBox.className = "challenge-result challenge-error";
+      resultBox.textContent = friendlyError(e);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "اسأل الذكاء الاصطناعي يراجعها";
+    }
+  });
+
+  return wrap;
 }
 
 /* ---------- 4) عرض التقرير ---------- */
@@ -497,7 +557,7 @@ function renderReport(url, data) {
   document.getElementById("report-summary-text").textContent = data.summary || "";
 
   const ring = document.getElementById("ring-fg");
-  const circumference = 2 * Math.PI * 52; // ~327
+  const circumference = 2 * Math.PI * 52;
   const offset = circumference - (score / 100) * circumference;
   ring.style.stroke = scoreColor(score);
   requestAnimationFrame(() => {
@@ -539,6 +599,10 @@ function renderReport(url, data) {
       }
       detailsEl.innerHTML = detailsHtml;
 
+      if (cat.diagnosis) {
+        detailsEl.appendChild(buildChallengeWidget(cat.name, cat.diagnosis));
+      }
+
       const toggleBtn = el.querySelector(".cat-toggle");
       toggleBtn.addEventListener("click", () => {
         const isOpen = el.classList.contains("cat-item-open");
@@ -553,14 +617,15 @@ function renderReport(url, data) {
     catGrid.appendChild(el);
   });
 
-  fillList("strengths-list", data.strengths);
-  fillList("weaknesses-list", data.weaknesses);
+  fillList("strengths-list", data.strengths, "نقطة قوة");
+  fillList("weaknesses-list", data.weaknesses, "نقطة تحتاج تحسين");
 
   const recoList = document.getElementById("recommendations-list");
   recoList.innerHTML = "";
   (data.recommendations || []).forEach((r) => {
     const li = document.createElement("li");
     li.textContent = r;
+    li.appendChild(buildChallengeWidget("توصية", r));
     recoList.appendChild(li);
   });
 
@@ -597,6 +662,7 @@ function renderCompetitors(competitors, summary) {
         <span class="competitor-name">${escapeHtml(c.name || "منافس")}</span>
         ${linkHtml}
       </div>
+      ${c.reason ? `<p class="competitor-reason"><b>ليه اخترناه؟</b> ${escapeHtml(c.reason)}</p>` : ""}
       ${c.comparison ? `<p class="competitor-comparison">${escapeHtml(c.comparison)}</p>` : ""}
       <div class="competitor-lists">
         <div class="competitor-strengths">
@@ -624,16 +690,21 @@ function renderCompetitors(competitors, summary) {
       weaknessesUl.appendChild(li);
     });
 
+    if (c.comparison) {
+      card.appendChild(buildChallengeWidget("مقارنة مع " + (c.name || "المنافس"), c.comparison));
+    }
+
     grid.appendChild(card);
   });
 }
 
-function fillList(id, items) {
+function fillList(id, items, claimLabel) {
   const ul = document.getElementById(id);
   ul.innerHTML = "";
   (items || []).forEach((item) => {
     const li = document.createElement("li");
     li.textContent = item;
+    if (claimLabel) li.appendChild(buildChallengeWidget(claimLabel, item));
     ul.appendChild(li);
   });
 }

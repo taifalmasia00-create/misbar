@@ -159,23 +159,14 @@
       <p class="section-eyebrow">جرّب الأداة</p>
       <h2>فحص فعلي، دلوقتي</h2>
       <p class="analyze-lead">
-        أدخل رابط الموقع، والصق مفتاح Google AI Studio (Gemini) المجاني الخاص بيك (يُحفظ في متصفحك فقط ولا يُرسل لأي سيرفر تاني غير Google).
+        أدخل رابط الموقع أو المتجر اللي عايز تفحصه، وخلاص — الأداة هتقرا محتواه وتحلله فورًا.
       </p>
 
       <form id="analyze-form" class="analyze-form">
-        <div class="field">
+        <div class="field field-full">
           <label for="site-url">رابط الموقع أو المتجر</label>
           <input type="url" id="site-url" placeholder="https://example.com" required>
         </div>
-        <div class="field">
-          <label for="api-key">مفتاح Google AI Studio (Gemini)</label>
-          <input type="password" id="api-key" placeholder="AIza...">
-          <button type="button" id="toggle-key" class="link-btn">إظهار</button>
-        </div>
-        <label class="remember">
-          <input type="checkbox" id="remember-key">
-          <span>احفظ المفتاح في هذا المتصفح</span>
-        </label>
         <label class="remember">
           <input type="checkbox" id="compare-competitors" checked>
           <span>قارن تلقائيًا مع 2-3 منافسين حقيقيين في نفس المجال</span>
@@ -184,12 +175,6 @@
           <span id="scan-btn-text">ابدأ الفحص</span>
         </button>
       </form>
-
-      <p class="hint">
-        محتاج مفتاح؟ ادخل على
-        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>
-        وسجّل دخول بحساب Google، واعمل "Create API key" — مجاني بحدود استخدام يومية.
-      </p>
 
       <div id="status" class="status" hidden></div>
 
