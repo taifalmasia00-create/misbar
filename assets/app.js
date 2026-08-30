@@ -13,7 +13,7 @@
 // (شوف supabase/README.md لخطوات النشر). الشكل العام:
 // https://<project-ref>.supabase.co/functions/v1/gemini-proxy
 const WORKER_ENDPOINT = "https://eydjkndgjoqtimkzdady.supabase.co/functions/v1/gemini-proxy";
-const MODEL = "gemini-3.7-flash";
+const MODEL = "gemini-3.5-flash-lite";
 const READER_PREFIX = "https://r.jina.ai/";
 
 const form = document.getElementById("analyze-form");
