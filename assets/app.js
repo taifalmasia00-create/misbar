@@ -13,7 +13,7 @@
 // (شوف supabase/README.md لخطوات النشر). الشكل العام:
 // https://<project-ref>.supabase.co/functions/v1/gemini-proxy
 const WORKER_ENDPOINT = "https://eydjkndgjoqtimkzdady.supabase.co/functions/v1/gemini-proxy";
-const MODEL = "gemini-3.5-flash-lite";
+const MODEL = "gemini-3.1-flash-lite";
 const READER_PREFIX = "https://r.jina.ai/";
 
 const form = document.getElementById("analyze-form");
@@ -37,16 +37,22 @@ const lastContext = { url: "", pageText: "", competitorsFound: [] };
 
 heroForm.addEventListener("submit", (e) => {
   e.preventDefault();
+  const url = normalizeUrl(heroUrlInput.value.trim());
+  if (!url) return;
   urlInput.value = heroUrlInput.value;
   document.getElementById("analyze").scrollIntoView({ behavior: "smooth", block: "start" });
-  urlInput.focus();
+  // مش بس بننزل تحت — الفحص لازم يبدأ فعليًا من غير ما المستخدم يحتاج يدوس زرار تاني
+  runScan(url);
 });
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const url = normalizeUrl(urlInput.value.trim());
   if (!url) return;
+  runScan(url);
+});
 
+async function runScan(url) {
   setLoading(true);
   report.hidden = true;
   resetHeroPreview();
@@ -118,7 +124,7 @@ form.addEventListener("submit", async (e) => {
   } finally {
     setLoading(false);
   }
-});
+}
 
 function normalizeUrl(raw) {
   if (!raw) return "";
@@ -642,6 +648,7 @@ function buildChallengeWidget(claimLabel, claimText) {
   panel.className = "challenge-panel";
   panel.hidden = true;
   panel.innerHTML = `
+    <span class="challenge-panel-label">مش متفق مع النقطة دي؟</span>
     <textarea class="challenge-input" rows="2" placeholder="اكتب ليه شايف إن النقطة دي مش صح..."></textarea>
     <button type="button" class="challenge-submit link-btn">اسأل الذكاء الاصطناعي يراجعها</button>
     <div class="challenge-result" hidden></div>
@@ -694,6 +701,21 @@ function buildChallengeWidget(claimLabel, claimText) {
 }
 
 /* ---------- 4) عرض التقرير ---------- */
+
+/* نفس أيقونات محاور التحليل الظاهرة في قسم "ماذا نفحص" بالصفحة الرئيسية —
+   بنكررها هنا في التقرير عشان يفضل في هوية بصرية واحدة متسقة في الموقع كله */
+const CATEGORY_ICONS = {
+  "التصميم والهوية": "UI",
+  "تجربة المستخدم": "UX",
+  "السيو والمحتوى": "SEO",
+  "عناصر الثقة": "TR",
+  "قابلية التحويل": "CVR",
+};
+const CATEGORY_ICON_FALLBACK = ["UI", "UX", "SEO", "TR", "CVR"];
+function categoryIcon(name, idx) {
+  return CATEGORY_ICONS[name] || CATEGORY_ICON_FALLBACK[idx] || "•";
+}
+
 function renderReport(url, data) {
   report.hidden = false;
 
@@ -712,24 +734,40 @@ function renderReport(url, data) {
 
   const catGrid = document.getElementById("cat-grid");
   catGrid.innerHTML = "";
+  const catCircumference = 2 * Math.PI * 22;
+  const ringsToAnimate = [];
+
   (data.categories || []).forEach((cat, idx) => {
     const s = clamp(Number(cat.score) || 0, 0, 100);
     const color = scoreColor(s);
     const catId = "cat-details-" + idx;
+    const ringId = "cat-ring-fg-" + idx;
+    const icon = categoryIcon(cat.name, idx);
 
     const el = document.createElement("div");
     el.className = "cat-item bracket-frame";
     el.innerHTML = `
       <button type="button" class="cat-toggle" aria-expanded="false" aria-controls="${catId}">
-        <span class="cat-name">${escapeHtml(cat.name)}</span>
-        <span class="cat-toggle-right">
-          <span class="cat-score" style="color:${color}">${Math.round(s)}</span>
-          <span class="cat-chevron" aria-hidden="true">▾</span>
+        <span class="cat-gauge">
+          <svg viewBox="0 0 56 56" width="56" height="56">
+            <circle cx="28" cy="28" r="22" class="cat-ring-bg"/>
+            <circle cx="28" cy="28" r="22" class="cat-ring-fg" id="${ringId}" style="stroke:${color}"/>
+          </svg>
+          <span class="cat-gauge-num" style="color:${color}">${Math.round(s)}</span>
         </span>
+        <span class="cat-copy">
+          <span class="cat-icon-tag">${icon}</span>
+          <span class="cat-name">${escapeHtml(cat.name)}</span>
+        </span>
+        <span class="cat-chevron" aria-hidden="true">▾</span>
       </button>
-      <div class="cat-bar"><span style="width:${s}%; background:${color}"></span></div>
       <div class="cat-details" id="${catId}" hidden></div>
     `;
+
+    const ringFg = el.querySelector("#" + ringId);
+    ringFg.style.strokeDasharray = catCircumference;
+    ringFg.style.strokeDashoffset = catCircumference;
+    ringsToAnimate.push({ el: ringFg, offset: catCircumference - (s / 100) * catCircumference, delay: idx * 90 });
 
     const detailsEl = el.querySelector(".cat-details");
     const hasDetails = cat.diagnosis || (cat.improvements && cat.improvements.length);
@@ -763,14 +801,29 @@ function renderReport(url, data) {
     catGrid.appendChild(el);
   });
 
-  fillList("strengths-list", data.strengths, "نقطة قوة");
-  fillList("weaknesses-list", data.weaknesses, "نقطة تحتاج تحسين");
+  requestAnimationFrame(() => {
+    ringsToAnimate.forEach(({ el, offset, delay }) => {
+      setTimeout(() => {
+        el.style.strokeDashoffset = offset;
+      }, delay);
+    });
+  });
+
+  fillList("strengths-list", data.strengths, "li-icon-good", "✓", "نقطة قوة");
+  fillList("weaknesses-list", data.weaknesses, "li-icon-bad", "!", "نقطة تحتاج تحسين");
 
   const recoList = document.getElementById("recommendations-list");
   recoList.innerHTML = "";
-  (data.recommendations || []).forEach((r) => {
+  (data.recommendations || []).forEach((r, idx) => {
     const li = document.createElement("li");
-    li.textContent = r;
+    const numSpan = document.createElement("span");
+    numSpan.className = "reco-num";
+    numSpan.textContent = String(idx + 1);
+    const textSpan = document.createElement("span");
+    textSpan.className = "reco-text";
+    textSpan.textContent = r;
+    li.appendChild(numSpan);
+    li.appendChild(textSpan);
     li.appendChild(buildChallengeWidget("توصية", r));
     recoList.appendChild(li);
   });
@@ -844,12 +897,23 @@ function renderCompetitors(competitors, summary) {
   });
 }
 
-function fillList(id, items, claimLabel) {
+function fillList(id, items, iconClass, iconChar, claimLabel) {
   const ul = document.getElementById(id);
   ul.innerHTML = "";
   (items || []).forEach((item) => {
     const li = document.createElement("li");
-    li.textContent = item;
+
+    const icon = document.createElement("span");
+    icon.className = "li-icon " + iconClass;
+    icon.textContent = iconChar;
+    icon.setAttribute("aria-hidden", "true");
+
+    const text = document.createElement("span");
+    text.className = "li-text";
+    text.textContent = item;
+
+    li.appendChild(icon);
+    li.appendChild(text);
     if (claimLabel) li.appendChild(buildChallengeWidget(claimLabel, item));
     ul.appendChild(li);
   });
