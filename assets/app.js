@@ -13,7 +13,7 @@
 // (شوف supabase/README.md لخطوات النشر). الشكل العام:
 // https://<project-ref>.supabase.co/functions/v1/gemini-proxy
 const WORKER_ENDPOINT = "https://eydjkndgjoqtimkzdady.supabase.co/functions/v1/gemini-proxy";
-const MODEL = "gemini-3.5-flash-lite";
+const MODEL = "gemini-3.1-flash-lite";
 const READER_PREFIX = "https://r.jina.ai/";
 
 const form = document.getElementById("analyze-form");
@@ -23,6 +23,10 @@ const heroUrlInput = document.getElementById("hero-url");
 const compareBox = document.getElementById("compare-competitors");
 const scanBtn = document.getElementById("scan-btn");
 const scanBtnText = document.getElementById("scan-btn-text");
+const heroScanBtn = document.getElementById("hero-scan-btn");
+const heroScanBtnText = document.getElementById("hero-scan-btn-text");
+const heroNote = document.getElementById("hero-note");
+const heroNoteOriginalText = heroNote ? heroNote.textContent : "";
 const statusBox = document.getElementById("status");
 const report = document.getElementById("report");
 
@@ -40,22 +44,30 @@ heroForm.addEventListener("submit", (e) => {
   const url = normalizeUrl(heroUrlInput.value.trim());
   if (!url) return;
   urlInput.value = heroUrlInput.value;
-  document.getElementById("analyze").scrollIntoView({ behavior: "smooth", block: "start" });
-  // مش بس بننزل تحت — الفحص لازم يبدأ فعليًا من غير ما المستخدم يحتاج يدوس زرار تاني
-  runScan(url);
+  // من غير ما ننزل تحت خالص — الفحص بيشتغل وانت لسه فوق، والنتيجة بتتحدث في نفس
+  // المعاينة اللي قدامك (الـ badges وصورة الموقع)؛ لو عايز التفاصيل الكاملة تقدر
+  // تنزل بنفسك لما تخلص.
+  runScan(url, { fromHero: true });
 });
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const url = normalizeUrl(urlInput.value.trim());
   if (!url) return;
-  runScan(url);
+  runScan(url, { fromHero: false });
 });
 
-async function runScan(url) {
+async function runScan(url, { fromHero = false } = {}) {
   setLoading(true);
   report.hidden = true;
   resetHeroPreview();
+  if (heroNote) {
+    heroNote.textContent = heroNoteOriginalText;
+    heroNote.style.color = "";
+  }
+  if (fromHero && heroNote) {
+    heroNote.textContent = "بنفحص الموقع دلوقتي...";
+  }
 
   try {
     showStatus("بنقرأ محتوى الصفحة...", "loading");
@@ -110,17 +122,24 @@ async function runScan(url) {
 
     attachCompetitorReasons(analysis, competitors);
 
-    renderReport(url, analysis);
+    renderReport(url, analysis, { scrollToReport: !fromHero });
     updateHeroPreview(url, analysis);
     if (competitorsNote) {
       showStatus(competitorsNote);
     } else {
       statusBox.hidden = true;
     }
+    if (fromHero && heroNote) {
+      heroNote.textContent = "تم الفحص! انزل تحت لو عايز التقرير الكامل بالتفاصيل والتوصيات.";
+    }
   } catch (err) {
     console.error(err);
     showStatus(friendlyError(err), "error");
     if (heroBrowserBody) heroBrowserBody.classList.remove("is-scanning");
+    if (fromHero && heroNote) {
+      heroNote.textContent = friendlyError(err);
+      heroNote.style.color = "var(--danger)";
+    }
   } finally {
     setLoading(false);
   }
@@ -238,6 +257,8 @@ function sleep(ms) {
 function setLoading(isLoading) {
   scanBtn.disabled = isLoading;
   scanBtnText.textContent = isLoading ? "جاري الفحص..." : "ابدأ الفحص";
+  if (heroScanBtn) heroScanBtn.disabled = isLoading;
+  if (heroScanBtnText) heroScanBtnText.textContent = isLoading ? "جاري الفحص..." : "ابدأ الفحص";
 }
 
 function showStatus(msg, type) {
@@ -389,7 +410,7 @@ async function findCompetitorsGrounded(url, pageText) {
   const data = await callGeminiViaWorker({
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 1300 },
+    generationConfig: { temperature: 0.3, maxOutputTokens: 1300, thinkingConfig: { thinkingLevel: "low" } },
   });
 
   const textPart = extractTextPart(data);
@@ -429,6 +450,7 @@ async function findCompetitorsFallback(url, pageText) {
       temperature: 0.3,
       maxOutputTokens: 700,
       responseMimeType: "application/json",
+      thinkingConfig: { thinkingLevel: "low" },
     },
   });
 
@@ -582,6 +604,7 @@ async function runAnalysis(url, pageText, competitors) {
       temperature: 0.3,
       maxOutputTokens: hasCompetitors ? 5200 : 3600,
       responseMimeType: "application/json",
+      thinkingConfig: { thinkingLevel: "low" },
     },
   };
 
@@ -620,6 +643,7 @@ verdict = "partial" يعني في جزء صح وجزء محتاج توضيح.`;
       temperature: 0.3,
       maxOutputTokens: 500,
       responseMimeType: "application/json",
+      thinkingConfig: { thinkingLevel: "low" },
     },
   });
 
@@ -716,7 +740,7 @@ function categoryIcon(name, idx) {
   return CATEGORY_ICONS[name] || CATEGORY_ICON_FALLBACK[idx] || "•";
 }
 
-function renderReport(url, data) {
+function renderReport(url, data, { scrollToReport = true } = {}) {
   report.hidden = false;
 
   const score = clamp(Number(data.overall_score) || 0, 0, 100);
@@ -830,7 +854,9 @@ function renderReport(url, data) {
 
   renderCompetitors(data.competitors, data.competitive_summary);
 
-  report.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (scrollToReport) {
+    report.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 function renderCompetitors(competitors, summary) {
