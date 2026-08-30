@@ -410,7 +410,7 @@ async function findCompetitorsGrounded(url, pageText) {
   const data = await callGeminiViaWorker({
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 1300, thinkingConfig: { thinkingLevel: "low" } },
+    generationConfig: { temperature: 0, seed: 42, maxOutputTokens: 1300, thinkingConfig: { thinkingLevel: "low" } },
   });
 
   const textPart = extractTextPart(data);
@@ -447,7 +447,8 @@ async function findCompetitorsFallback(url, pageText) {
   const data = await callGeminiViaWorker({
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
-      temperature: 0.3,
+      temperature: 0,
+      seed: 42,
       maxOutputTokens: 700,
       responseMimeType: "application/json",
       thinkingConfig: { thinkingLevel: "low" },
@@ -601,7 +602,8 @@ async function runAnalysis(url, pageText, competitors) {
     systemInstruction: { role: "system", parts: [{ text: system }] },
     contents: [{ role: "user", parts: [{ text: userMsg }] }],
     generationConfig: {
-      temperature: 0.3,
+      temperature: 0,
+      seed: 42,
       maxOutputTokens: hasCompetitors ? 5200 : 3600,
       responseMimeType: "application/json",
       thinkingConfig: { thinkingLevel: "low" },
@@ -640,7 +642,8 @@ verdict = "partial" يعني في جزء صح وجزء محتاج توضيح.`;
   const data = await callGeminiViaWorker({
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
-      temperature: 0.3,
+      temperature: 0,
+      seed: 42,
       maxOutputTokens: 500,
       responseMimeType: "application/json",
       thinkingConfig: { thinkingLevel: "low" },
