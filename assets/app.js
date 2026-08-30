@@ -13,7 +13,7 @@
 // (شوف supabase/README.md لخطوات النشر). الشكل العام:
 // https://<project-ref>.supabase.co/functions/v1/gemini-proxy
 const WORKER_ENDPOINT = "https://eydjkndgjoqtimkzdady.supabase.co/functions/v1/gemini-proxy";
-const MODEL = "gemini-3.5-flash-lite";
+const MODEL = "gemini-2.5-flash-lite";
 const READER_PREFIX = "https://r.jina.ai/";
 
 const form = document.getElementById("analyze-form");
@@ -68,17 +68,25 @@ form.addEventListener("submit", async (e) => {
 
         if (found.length) {
           lastContext.competitorsFound = found;
-          showStatus("بنقرا مواقع المنافسين (" + found.length + ")...", "loading");
-          competitors = await Promise.all(
+          showStatus("بنتأكد إن روابط المنافسين شغالة فعليًا (" + found.length + ")...", "loading");
+          // نتأكد إن كل رابط منافس شغال وبيرجع محتوى حقيقي فعليًا قبل ما نعرضه.
+          // لو الرابط مش شغال أو فاضي، منعرضوش خالص — أحسن من عرض رابط غلط أو منافس مش موجود.
+          const verified = await Promise.all(
             found.map(async (c) => {
               try {
                 const text = await fetchPageContent(c.url, 4000);
+                if (!text || text.trim().length < 80) return null;
                 return { ...c, text };
               } catch (e) {
-                return { ...c, text: null };
+                return null;
               }
             })
           );
+          competitors = verified.filter(Boolean);
+
+          if (!competitors.length) {
+            competitorsNote = "لقينا أسماء منافسين محتملين لكن روابطهم معرفناش نتأكد منها فعليًا، فالتقرير هيبقى من غيرهم.";
+          }
         } else {
           competitorsNote = "معرفناش نلاقي منافسين حقيقيين واضحين لموقعك، فالتقرير هيبقى من غيرهم.";
         }
@@ -298,8 +306,13 @@ async function findCompetitorsGrounded(url, pageText) {
 رجّع فقط مصفوفة JSON بالشكل ده بالظبط، بدون أي نص إضافي قبلها أو بعدها، وبدون Markdown code fences:
 [{"name": "اسم الشركة المنافسة", "url": "https://رابط موقعها الرسمي", "reason": "جملة قصيرة توضح ليه ده يعتبر منافس مباشر فعلي (نفس المجال، نفس الجمهور، نفس نوع المنتج...)"}]
 
+مهم جدًا بخصوص الروابط: استخدم فقط الرابط اللي شفته فعليًا في نتائج البحث اللي عملتها الآن،
+حرفيًا زي ما هو من غير تعديل أو تخمين. ممنوع تكتب رابط من ذاكرتك أو تتوقعه بناءً على اسم الشركة.
+لو بحثت عن شركة ومتأكد إنها منافس حقيقي بس مش متأكد 100% من الرابط الدقيق بتاعها من نتائج
+البحث، استبعدها كلها بدل ما تخمن رابط ممكن يكون غلط.
+
 اختار منافسين حقيقيين وموجودين فعليًا وفي نفس المجال، وتجنّب الشركات العالمية العملاقة إلا لو
-كانت فعلاً منافس مباشر. لو معرفتش تلاقي منافسين حقيقيين، رجّع مصفوفة فاضية [].`;
+كانت فعلاً منافس مباشر. لو معرفتش تلاقي منافسين حقيقيين وواثق من روابطهم، رجّع مصفوفة فاضية [].`;
 
   const data = await callGeminiViaWorker({
     contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -309,7 +322,10 @@ async function findCompetitorsGrounded(url, pageText) {
 
   const textPart = extractTextPart(data);
   const list = extractJson(textPart, "array");
-  return normalizeCompetitorsList(list);
+  // بيانات الـ grounding بتحتوي الروابط الحقيقية اللي البحث رجّعها فعليًا،
+  // بنستخدمها عشان نتأكد إن الموديل مش بيخترع رابط من عنده رغم إنه عمل بحث حقيقي.
+  const groundingSources = extractGroundingSources(data);
+  return normalizeCompetitorsList(list, groundingSources);
 }
 
 /* محاولة احتياطية من غير أداة بحث جوجل — بتعتمد على معرفة الموديل العامة فقط */
@@ -340,16 +356,50 @@ async function findCompetitorsFallback(url, pageText) {
   return normalizeCompetitorsList(list);
 }
 
-function normalizeCompetitorsList(list) {
+/* بيرجع أسماء الدومينات الحقيقية اللي ظهرت في نتائج بحث جوجل المدمج مع الرد (لو موجودة) */
+function extractGroundingSources(data) {
+  const candidate = (data.candidates || [])[0];
+  const chunks = (candidate && candidate.groundingMetadata && candidate.groundingMetadata.groundingChunks) || [];
+  return chunks.map((c) => c && c.web && c.web.uri).filter(Boolean);
+}
+
+function hostnameOf(rawUrl) {
+  try {
+    return new URL(rawUrl).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch (e) {
+    return "";
+  }
+}
+
+function normalizeCompetitorsList(list, groundingSources) {
   if (!Array.isArray(list)) return [];
+  const groundedHosts = (groundingSources || []).map(hostnameOf).filter(Boolean);
+
   return list
     .filter((c) => c && c.name && c.url)
-    .slice(0, 3)
-    .map((c) => ({
-      name: String(c.name),
-      url: normalizeUrl(String(c.url).trim()),
-      reason: c.reason ? String(c.reason) : "",
-    }));
+    .map((c) => {
+      const url = normalizeUrl(String(c.url).trim());
+      const host = hostnameOf(url);
+      if (!host) return null;
+
+      // لو عندنا نتائج بحث حقيقية اتعملت، لازم رابط المنافس يكون فعلاً جزء منها
+      // (أو دومين فرعي/أب ليها) — وإلا الموديل يكون كتب رابط من عنده رغم إنه بحث،
+      // فبنستبعده بدل ما نعرض رابط غلط أو غير موجود.
+      if (groundedHosts.length) {
+        const isGrounded = groundedHosts.some(
+          (h) => h === host || host.endsWith("." + h) || h.endsWith("." + host)
+        );
+        if (!isGrounded) return null;
+      }
+
+      return {
+        name: String(c.name),
+        url,
+        reason: c.reason ? String(c.reason) : "",
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 3);
 }
 
 /* استخراج JSON من رد قد يحتوي نص إضافي حول الكائن/المصفوفة المطلوبة */
@@ -491,7 +541,9 @@ function buildChallengeWidget(claimLabel, claimText) {
   const toggleBtn = document.createElement("button");
   toggleBtn.type = "button";
   toggleBtn.className = "challenge-toggle";
-  toggleBtn.textContent = "💬 مش موافق على النقطة دي؟";
+  toggleBtn.textContent = "؟";
+  toggleBtn.title = "مش موافق على النقطة دي؟ اسأل الذكاء الاصطناعي يراجعها";
+  toggleBtn.setAttribute("aria-label", "مش موافق على النقطة دي؟ اسأل الذكاء الاصطناعي يراجعها");
   wrap.appendChild(toggleBtn);
 
   const panel = document.createElement("div");
