@@ -718,7 +718,7 @@ function renderReport(url, data) {
     const catId = "cat-details-" + idx;
 
     const el = document.createElement("div");
-    el.className = "cat-item";
+    el.className = "cat-item bracket-frame";
     el.innerHTML = `
       <button type="button" class="cat-toggle" aria-expanded="false" aria-controls="${catId}">
         <span class="cat-name">${escapeHtml(cat.name)}</span>
@@ -796,7 +796,7 @@ function renderCompetitors(competitors, summary) {
 
   competitors.forEach((c) => {
     const card = document.createElement("div");
-    card.className = "competitor-card";
+    card.className = "competitor-card bracket-frame";
 
     const safeUrl = /^https?:\/\//i.test(c.url || "") ? c.url : "";
     const linkHtml = safeUrl
@@ -856,9 +856,9 @@ function fillList(id, items, claimLabel) {
 }
 
 function scoreColor(score) {
-  if (score >= 75) return "#22E6C5";
-  if (score >= 50) return "#FFB020";
-  return "#FF5C72";
+  if (score >= 75) return "#55B189"; // good — أخضر مطفّي
+  if (score >= 50) return "#D98C3D"; // medium — نحاسي/برتقالي
+  return "#E2665B"; // poor — أحمر مرجاني
 }
 
 function clamp(n, min, max) {

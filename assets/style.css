@@ -1,22 +1,28 @@
 /* ============================================================
    مِسبار — design tokens
-   ink #0B0F1A · panel #141B2B · panel-2 #1B2438
-   paper #EDEFF5 · mist #8D97AE
-   signal (teal) #22E6C5 · flare (amber) #FFB020 · danger #FF5C72
+   هوية بصرية مبنية على فكرة "المسبار" كأداة قياس/فحص فعلية:
+   لهجة بصرية من قراءات الأجهزة والمقاييس، مش قالب SaaS عادي.
+   ink #10151E · panel #171F2C · panel-2 #1E2836 · paper #ECE7DD (عاجي دافئ)
+   signal (نحاسي/برونزي، اللون الأساسي) #E3A857 · depth (أزرق الفحص/المسح) #6FA8C4
+   good (نتيجة ممتازة) #55B189 · flare (نتيجة متوسطة) #D98C3D · danger (نتيجة ضعيفة) #E2665B
 ============================================================ */
 
 :root {
-  --ink: #0B0F1A;
-  --panel: #141B2B;
-  --panel-2: #1B2438;
-  --line: rgba(237, 239, 245, 0.09);
-  --line-strong: rgba(237, 239, 245, 0.16);
-  --paper: #EDEFF5;
-  --mist: #8D97AE;
-  --signal: #22E6C5;
-  --signal-dim: rgba(34, 230, 197, 0.14);
-  --flare: #FFB020;
-  --danger: #FF5C72;
+  --ink: #10151E;
+  --panel: #171F2C;
+  --panel-2: #1E2836;
+  --line: rgba(236, 231, 221, 0.08);
+  --line-strong: rgba(236, 231, 221, 0.16);
+  --paper: #ECE7DD;
+  --mist: #99A2B8;
+  --signal: #E3A857;
+  --signal-dim: rgba(227, 168, 87, 0.14);
+  --depth: #6FA8C4;
+  --depth-dim: rgba(111, 168, 196, 0.14);
+  --good: #55B189;
+  --good-dim: rgba(85, 177, 137, 0.14);
+  --flare: #D98C3D;
+  --danger: #E2665B;
 
   --font-display: 'Tajawal', 'IBM Plex Sans Arabic', sans-serif;
   --font-body: 'IBM Plex Sans Arabic', 'Tajawal', sans-serif;
@@ -70,6 +76,35 @@ h1, h2, h3, h4 {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
+/* ---------------- bracket-frame: توقيع بصري للموقع ----------------
+   زوايا زي عدسة/جهاز قياس بتحط على أي عنصر "بيتقاس أو بيتفحص" —
+   الفكرة إن كل كارت من دول هو نتيجة فحص فعلي، مش مجرد بوكس تصميم عادي. */
+.bracket-frame { position: relative; }
+.bracket-frame::before,
+.bracket-frame::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  opacity: 0.6;
+  pointer-events: none;
+  transition: opacity .2s ease, border-color .2s ease;
+}
+.bracket-frame::before {
+  top: -1px;
+  inset-inline-start: -1px;
+  border-top: 2px solid var(--signal);
+  border-inline-start: 2px solid var(--signal);
+}
+.bracket-frame::after {
+  bottom: -1px;
+  inset-inline-end: -1px;
+  border-bottom: 2px solid var(--signal);
+  border-inline-end: 2px solid var(--signal);
+}
+.bracket-frame:hover::before,
+.bracket-frame:hover::after { opacity: 1; }
+
 /* ---------------- buttons ---------------- */
 .btn {
   display: inline-flex;
@@ -79,7 +114,7 @@ h1, h2, h3, h4 {
   font-weight: 700;
   font-size: 15px;
   padding: 13px 24px;
-  border-radius: 999px;
+  border-radius: 8px;
   border: 1px solid transparent;
   cursor: pointer;
   text-decoration: none;
@@ -88,10 +123,10 @@ h1, h2, h3, h4 {
 .btn:active { transform: translateY(1px); }
 .btn-primary {
   background: var(--signal);
-  color: #05201C;
-  box-shadow: 0 0 0 0 rgba(34,230,197,0.5);
+  color: #241505;
+  box-shadow: 0 0 0 0 rgba(227,168,87,0.5);
 }
-.btn-primary:hover { box-shadow: 0 8px 30px -8px rgba(34,230,197,0.55); }
+.btn-primary:hover { box-shadow: 0 8px 30px -8px rgba(227,168,87,0.55); }
 .btn-primary:disabled { opacity: 0.55; cursor: progress; box-shadow: none; }
 .btn-ghost {
   background: transparent;
@@ -137,6 +172,7 @@ h1, h2, h3, h4 {
 }
 .logo-mark { color: var(--signal); display: flex; }
 .mark-sweep {
+  stroke: var(--depth);
   stroke-dasharray: 30 78;
   transform-origin: 20px 20px;
   animation: sweep 3.2s linear infinite;
@@ -167,16 +203,26 @@ h1, h2, h3, h4 {
   align-items: center;
 }
 .eyebrow {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: var(--signal);
   font-family: var(--font-mono);
   font-size: 13px;
   letter-spacing: 0.3px;
   margin: 0 0 18px;
-  padding: 6px 14px;
-  border: 1px solid var(--signal-dim);
-  border-radius: 999px;
-  background: var(--signal-dim);
+  padding: 0;
+  border: none;
+  background: none;
+}
+.eyebrow::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--signal);
+  transform: rotate(45deg);
+  flex-shrink: 0;
 }
 .hero h1 {
   font-size: clamp(34px, 4.6vw, 54px);
@@ -264,8 +310,8 @@ input:focus, textarea:focus {
   position: absolute;
   left: 0; right: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--signal), transparent);
-  box-shadow: 0 0 16px 2px rgba(34,230,197,0.6);
+  background: linear-gradient(90deg, transparent, var(--depth), transparent);
+  box-shadow: 0 0 16px 2px rgba(111,168,196,0.6);
   animation: scan 3.4s ease-in-out infinite;
 }
 .browser-body.is-scanning .scan-line { animation-duration: 1.1s; }
@@ -293,8 +339,9 @@ input:focus, textarea:focus {
   color: var(--mist);
   background: var(--ink);
   border: 1px solid var(--line-strong);
+  border-inline-start: 2px solid var(--signal);
   padding: 6px 12px;
-  border-radius: 999px;
+  border-radius: 4px;
   white-space: nowrap;
   animation: fadeUp 0.6s ease both;
   transition: color .2s ease;
@@ -321,10 +368,22 @@ input:focus, textarea:focus {
 /* ---------------- section shells ---------------- */
 section { padding: 88px 0; }
 .section-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-family: var(--font-mono);
   color: var(--signal);
   font-size: 13px;
   margin: 0 0 10px;
+}
+.section-eyebrow::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--signal);
+  transform: rotate(45deg);
+  flex-shrink: 0;
 }
 .how h2, .coverage h2, .analyze h2 { font-size: clamp(26px, 3vw, 36px); margin-bottom: 44px; }
 
@@ -367,7 +426,22 @@ section { padding: 88px 0; }
   border-color: var(--signal-dim);
   background: linear-gradient(180deg, var(--signal-dim), transparent);
 }
-.cov-icon { font-size: 22px; }
+.cov-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--signal);
+  direction: ltr;
+}
 .cov-card h3 { font-size: 17px; margin: 14px 0 8px; }
 .cov-card p { color: var(--mist); font-size: 14px; margin: 0; }
 
@@ -415,8 +489,8 @@ section { padding: 88px 0; }
   font-size: 14px;
   max-width: 760px;
 }
-.status.status-error { border-color: rgba(255,92,114,0.4); color: var(--danger); background: rgba(255,92,114,0.08); }
-.status.status-loading { border-color: var(--signal-dim); color: var(--signal); background: var(--signal-dim); }
+.status.status-error { border-color: rgba(226,102,91,0.4); color: var(--danger); background: rgba(226,102,91,0.08); }
+.status.status-loading { border-color: var(--depth-dim); color: var(--depth); background: var(--depth-dim); }
 
 /* report */
 .report { margin-top: 44px; max-width: 900px; }
@@ -534,7 +608,7 @@ section { padding: 88px 0; }
 #strengths-list li::before {
   content: "✓";
   position: absolute; inset-inline-start: 0;
-  color: var(--signal);
+  color: var(--good);
 }
 #weaknesses-list li::before {
   content: "!";
@@ -602,13 +676,13 @@ section { padding: 88px 0; }
 }
 .challenge-result b { display: block; margin-bottom: 4px; font-size: 13px; }
 .challenge-result p { margin: 0; color: var(--paper); }
-.challenge-agree { background: var(--signal-dim); border: 1px solid rgba(34,230,197,0.3); }
-.challenge-agree b { color: var(--signal); }
-.challenge-partial { background: rgba(255,176,32,0.1); border: 1px solid rgba(255,176,32,0.3); }
+.challenge-agree { background: var(--good-dim); border: 1px solid rgba(85,177,137,0.3); }
+.challenge-agree b { color: var(--good); }
+.challenge-partial { background: rgba(217,140,61,0.1); border: 1px solid rgba(217,140,61,0.3); }
 .challenge-partial b { color: var(--flare); }
-.challenge-disagree { background: rgba(141,151,174,0.08); border: 1px solid var(--line-strong); }
+.challenge-disagree { background: rgba(153,162,184,0.08); border: 1px solid var(--line-strong); }
 .challenge-disagree b { color: var(--mist); }
-.challenge-error { background: rgba(255,92,114,0.08); border: 1px solid rgba(255,92,114,0.3); color: var(--danger); }
+.challenge-error { background: rgba(226,102,91,0.08); border: 1px solid rgba(226,102,91,0.3); color: var(--danger); }
 
 /* competitors comparison */
 .competitors-block { margin-top: 34px; padding-top: 30px; border-top: 1px solid var(--line); }
@@ -674,7 +748,7 @@ section { padding: 88px 0; }
 .competitor-weaknesses li::before {
   content: "▽";
   position: absolute; inset-inline-start: 0;
-  color: var(--signal);
+  color: var(--good);
   font-size: 10px;
 }
 
